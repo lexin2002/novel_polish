@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BookOpen, Settings, History, FileText } from 'lucide-react'
+import { Sidebar } from './components/Sidebar'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
 
@@ -23,68 +24,74 @@ function App() {
   ]
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-white border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BookOpen className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-xl font-bold text-foreground">小说智能润色工作台</h1>
-              <p className="text-sm text-muted-foreground">Novel Polish - AI-Powered Writing Assistant</p>
+    <div className="min-h-screen bg-background flex">
+      {/* Left Sidebar - Config Cockpit */}
+      {activeTab === 'config' && <Sidebar />}
+
+      {/* Main Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="bg-white border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <BookOpen className="w-8 h-8 text-primary" />
+              <div>
+                <h1 className="text-xl font-bold text-foreground">小说智能润色工作台</h1>
+                <p className="text-sm text-muted-foreground">Novel Polish - AI-Powered Writing Assistant</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground">
+                状态: <span className="text-primary">{backendStatus}</span>
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">
-              状态: <span className="text-primary">{backendStatus}</span>
-            </span>
+        </header>
+
+        {/* Tab Navigation */}
+        <nav className="bg-white border-b border-border px-6">
+          <div className="flex gap-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors duration-200 ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
           </div>
-        </div>
-      </header>
+        </nav>
 
-      {/* Tab Navigation */}
-      <nav className="bg-white border-b border-border px-6">
-        <div className="flex gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors duration-200 ${
-                activeTab === tab.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+        {/* Main Content */}
+        <main className="flex-1 p-6">
+          <div className="bg-white border border-border rounded-lg p-8 text-center h-full">
+            <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">
+              {tabs.find((t) => t.id === activeTab)?.label}
+            </h2>
+            <p className="text-muted-foreground">
+              {activeTab === 'polish' && '粘贴原文，开始智能润色之旅'}
+              {activeTab === 'rules' && '配置和管理润色规则'}
+              {activeTab === 'history' && '查看历史润色记录'}
+              {activeTab === 'config' && '在左侧配置驾驶舱中调整系统参数'}
+            </p>
+          </div>
+        </main>
 
-      {/* Main Content */}
-      <main className="p-6">
-        <div className="card p-8 text-center">
-          <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-foreground mb-2">
-            {tabs.find((t) => t.id === activeTab)?.label}
-          </h2>
-          <p className="text-muted-foreground">
-            {activeTab === 'polish' && '粘贴原文，开始智能润色之旅'}
-            {activeTab === 'rules' && '配置和管理润色规则'}
-            {activeTab === 'history' && '查看历史润色记录'}
-            {activeTab === 'config' && '调整系统配置'}
-          </p>
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-border px-6 py-3">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>NovelPolish v1.0.0</span>
-          <span>Electron + React + TypeScript</span>
-        </div>
-      </footer>
+        {/* Footer */}
+        <footer className="bg-white border-t border-border px-6 py-3">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>NovelPolish v1.0.0</span>
+            <span>Electron + React + TypeScript</span>
+          </div>
+        </footer>
+      </div>
     </div>
   )
 }
