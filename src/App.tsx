@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
-import { BookOpen, Settings, History, FileText } from 'lucide-react'
+import { BookOpen, Settings, History, FileText, Terminal } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { RuleEditor } from './components/RuleEditor'
+import { LogPanel } from './components/LogPanel'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabType>('polish')
   const [backendStatus, setBackendStatus] = useState<string>('检查中...')
+  const [showLogPanel, setShowLogPanel] = useState(false)
 
   useEffect(() => {
     if (window.electronAPI) {
@@ -23,6 +25,10 @@ function App() {
     { id: 'history' as TabType, label: '历史档案馆', icon: History },
     { id: 'config' as TabType, label: '配置驾驶舱', icon: BookOpen },
   ]
+
+  const toggleLogPanel = () => {
+    setShowLogPanel(!showLogPanel)
+  }
 
   const renderMainContent = () => {
     switch (activeTab) {
@@ -69,6 +75,18 @@ function App() {
               <span className="text-sm text-muted-foreground">
                 状态: <span className="text-primary">{backendStatus}</span>
               </span>
+              <button
+                onClick={toggleLogPanel}
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded transition-colors ${
+                  showLogPanel
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                title="实时日志面板"
+              >
+                <Terminal className="w-4 h-4" />
+                日志
+              </button>
             </div>
           </div>
         </header>
@@ -97,6 +115,13 @@ function App() {
         <main className="flex-1 overflow-hidden">
           {renderMainContent()}
         </main>
+
+        {/* Log Panel - Bottom Drawer */}
+        {showLogPanel && (
+          <div className="h-64 border-t border-border bg-[#f4f4f4]">
+            <LogPanel />
+          </div>
+        )}
 
         {/* Footer */}
         <footer className="bg-white border-t border-border px-6 py-3">
