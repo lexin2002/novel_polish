@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BookOpen, Settings, History, FileText } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
+import { RuleEditor } from './components/RuleEditor'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
 
@@ -22,6 +23,30 @@ function App() {
     { id: 'history' as TabType, label: '历史档案馆', icon: History },
     { id: 'config' as TabType, label: '配置驾驶舱', icon: BookOpen },
   ]
+
+  const renderMainContent = () => {
+    switch (activeTab) {
+      case 'rules':
+        return <RuleEditor />
+      case 'polish':
+      case 'history':
+      case 'config':
+      default:
+        return (
+          <div className="bg-white border border-border rounded-lg p-8 text-center h-full flex flex-col items-center justify-center">
+            <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">
+              {tabs.find((t) => t.id === activeTab)?.label}
+            </h2>
+            <p className="text-muted-foreground">
+              {activeTab === 'polish' && '粘贴原文，开始智能润色之旅'}
+              {activeTab === 'history' && '查看历史润色记录'}
+              {activeTab === 'config' && '在左侧配置驾驶舱中调整系统参数'}
+            </p>
+          </div>
+        )
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -69,19 +94,8 @@ function App() {
         </nav>
 
         {/* Main Content */}
-        <main className="flex-1 p-6">
-          <div className="bg-white border border-border rounded-lg p-8 text-center h-full">
-            <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-foreground mb-2">
-              {tabs.find((t) => t.id === activeTab)?.label}
-            </h2>
-            <p className="text-muted-foreground">
-              {activeTab === 'polish' && '粘贴原文，开始智能润色之旅'}
-              {activeTab === 'rules' && '配置和管理润色规则'}
-              {activeTab === 'history' && '查看历史润色记录'}
-              {activeTab === 'config' && '在左侧配置驾驶舱中调整系统参数'}
-            </p>
-          </div>
+        <main className="flex-1 overflow-hidden">
+          {renderMainContent()}
         </main>
 
         {/* Footer */}

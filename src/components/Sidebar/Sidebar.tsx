@@ -171,8 +171,24 @@ export const Sidebar: React.FC = () => {
 
   if (!config) {
     return (
-      <aside className="w-80 bg-white border-r border-border p-4">
-        <div className="text-destructive">配置加载失败</div>
+      <aside className="w-80 bg-white border-r border-border overflow-y-auto">
+        <div className="p-4 border-b border-border sticky top-0 bg-white z-10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              配置驾驶舱
+            </h2>
+            <button
+              onClick={resetConfig}
+              className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              title="重置为默认"
+            >
+              <RotateCcw className="w-4 h-4" />
+              重置
+            </button>
+          </div>
+        </div>
+        <div className="p-4 text-destructive">配置加载失败</div>
       </aside>
     )
   }

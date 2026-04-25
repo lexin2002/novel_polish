@@ -1,0 +1,238 @@
+import { create } from 'zustand'
+import axios from 'axios'
+
+export interface Rule {
+  name: string
+  is_active: boolean
+  instruction: string
+  direction?: string
+}
+
+export interface SubCategory {
+  name: string
+  priority: string
+  rules: Rule[]
+}
+
+export interface MainCategory {
+  name: string
+  priority: string
+  is_active: boolean
+  sub_categories: SubCategory[]
+}
+
+export interface RulesState {
+  main_categories: MainCategory[]
+}
+
+interface RuleStore {
+  draft: RulesState | null
+  original: RulesState | null
+  isLoading: boolean
+  isSyncing: boolean
+  error: string | null
+  validationErrors: string[]
+
+  // Actions
+  fetchRules: () => Promise<void>
+  submitRules: () => Promise<boolean>
+  revertRules: () => void
+
+  // Node operations
+  updateCategory: (index: number, updates: Partial<MainCategory>) => void
+  updateSubCategory: (catIndex: number, subIndex: number, updates: Partial<SubCategory>) => void
+  updateRule: (catIndex: number, subIndex: number, ruleIndex: number, updates: Partial<Rule>) => void
+
+  // Drag and drop
+  moveCategory: (fromIndex: number, toIndex: number) => void
+  moveSubCategory: (catIndex: number, fromIndex: number, toIndex: number) => void
+  moveRule: (catIndex: number, subIndex: number, fromIndex: number, toIndex: number) => void
+
+  // Validation
+  validatePriority: (priority: string, validPriorities: string[]) => boolean
+  validateAllPriorities: (validPriorities: string[]) => boolean
+  clearValidationErrors: () => void
+}
+
+export const useRuleStore = create<RuleStore>((set, get) => ({
+  draft: null,
+  original: null,
+  isLoading: false,
+  isSyncing: false,
+  error: null,
+  validationErrors: [],
+
+  fetchRules: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await axios.get<RulesState>('/api/rules')
+      const data = response.data
+      // Deep clone to separate draft from original
+      const cloned = JSON.parse(JSON.stringify(data))
+      set({
+        draft: cloned,
+        original: data,
+        isLoading: false,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch rules'
+      set({ error: message, isLoading: false })
+    }
+  },
+
+  submitRules: async () => {
+    const { draft, validateAllPriorities } = get()
+    if (!draft) return false
+
+    // Get valid priorities from config
+    try {
+      const configResponse = await axios.get('/api/config')
+      const validPriorities = configResponse.data.priority_order || ['P0', 'P1', 'P2', 'P3']
+
+      // Validate all priorities before submitting
+      if (!validateAllPriorities(validPriorities)) {
+        return false
+      }
+
+      set({ isSyncing: true, error: null })
+      await axios.post('/api/rules', draft)
+      set((state) => ({
+        original: state.draft ? JSON.parse(JSON.stringify(state.draft)) : null,
+        isSyncing: false,
+      }))
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to submit rules'
+      set({ error: message, isSyncing: false })
+      return false
+    }
+  },
+
+  revertRules: () => {
+    const { original } = get()
+    if (original) {
+      set({ draft: JSON.parse(JSON.stringify(original)), validationErrors: [] })
+    }
+  },
+
+  updateCategory: (index: number, updates: Partial<MainCategory>) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      newDraft.main_categories = [...newDraft.main_categories]
+      newDraft.main_categories[index] = {
+        ...newDraft.main_categories[index],
+        ...updates,
+      }
+      return { draft: newDraft }
+    })
+  },
+
+  updateSubCategory: (catIndex: number, subIndex: number, updates: Partial<SubCategory>) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      newDraft.main_categories = [...newDraft.main_categories]
+      const cat = { ...newDraft.main_categories[catIndex] }
+      cat.sub_categories = [...cat.sub_categories]
+      cat.sub_categories[subIndex] = { ...cat.sub_categories[subIndex], ...updates }
+      newDraft.main_categories[catIndex] = cat
+      return { draft: newDraft }
+    })
+  },
+
+  updateRule: (catIndex: number, subIndex: number, ruleIndex: number, updates: Partial<Rule>) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      newDraft.main_categories = [...newDraft.main_categories]
+      const cat = { ...newDraft.main_categories[catIndex] }
+      cat.sub_categories = [...cat.sub_categories]
+      const subCat = { ...cat.sub_categories[subIndex] }
+      subCat.rules = [...subCat.rules]
+      subCat.rules[ruleIndex] = { ...subCat.rules[ruleIndex], ...updates }
+      cat.sub_categories[subIndex] = subCat
+      newDraft.main_categories[catIndex] = cat
+      return { draft: newDraft }
+    })
+  },
+
+  moveCategory: (fromIndex: number, toIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const [removed] = cats.splice(fromIndex, 1)
+      cats.splice(toIndex, 0, removed)
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  moveSubCategory: (catIndex: number, fromIndex: number, toIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      const subs = [...cat.sub_categories]
+      const [removed] = subs.splice(fromIndex, 1)
+      subs.splice(toIndex, 0, removed)
+      cat.sub_categories = subs
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  moveRule: (catIndex: number, subIndex: number, fromIndex: number, toIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      const subs = [...cat.sub_categories]
+      const subCat = { ...subs[subIndex] }
+      const rules = [...subCat.rules]
+      const [removed] = rules.splice(fromIndex, 1)
+      rules.splice(toIndex, 0, removed)
+      subCat.rules = rules
+      subs[subIndex] = subCat
+      cat.sub_categories = subs
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  validatePriority: (priority: string, validPriorities: string[]) => {
+    return validPriorities.includes(priority)
+  },
+
+  validateAllPriorities: (validPriorities: string[]) => {
+    const { draft } = get()
+    if (!draft) return false
+
+    const errors: string[] = []
+
+    const checkPriority = (priority: string, path: string) => {
+      if (!validPriorities.includes(priority)) {
+        errors.push(`未定义的优先级 "${priority}" (在 ${path})`)
+      }
+    }
+
+    draft.main_categories.forEach((cat) => {
+      checkPriority(cat.priority, `主类别 "${cat.name}"`)
+      cat.sub_categories.forEach((sub) => {
+        checkPriority(sub.priority, `子类别 "${sub.name}"`)
+      })
+    })
+
+    set({ validationErrors: errors })
+    return errors.length === 0
+  },
+
+  clearValidationErrors: () => {
+    set({ validationErrors: [] })
+  },
+}))
