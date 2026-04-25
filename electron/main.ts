@@ -6,6 +6,35 @@ let mainWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
+const BACKEND_URL = 'http://localhost:57621'
+const HEALTH_CHECK_TIMEOUT = 10000 // 10 seconds
+const HEALTH_CHECK_INTERVAL = 500 // 500ms
+
+function log(level: 'info' | 'error' | 'warn', source: string, message: string) {
+  const timestamp = new Date().toISOString()
+  console[`${level}`](`[${timestamp}] [${source}] ${message}`)
+}
+
+async function checkBackendHealth(): Promise<boolean> {
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < HEALTH_CHECK_TIMEOUT) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/health`)
+      if (response.ok) {
+        log('info', 'Backend', 'Health check passed')
+        return true
+      }
+    } catch {
+      // Backend not ready yet
+    }
+
+    await new Promise(resolve => setTimeout(resolve, HEALTH_CHECK_INTERVAL))
+  }
+
+  log('error', 'Backend', `Health check timeout after ${HEALTH_CHECK_TIMEOUT}ms`)
+  return false
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -45,47 +74,72 @@ function createWindow() {
   })
 }
 
-function startBackend(): Promise<void> {
+function startBackend(): Promise<boolean> {
   return new Promise((resolve) => {
-    const backendScript = VITE_DEV_SERVER_URL
-      ? path.join(__dirname, '../../backend/main.py')
-      : path.join(process.resourcesPath || '', 'backend/main.py')
+    const backendDir = VITE_DEV_SERVER_URL
+      ? path.join(__dirname, '../../backend')
+      : path.join(process.resourcesPath || '', 'backend')
 
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
 
-    if (VITE_DEV_SERVER_URL) {
-      backendProcess = spawn(pythonCmd, ['-m', 'backend.main'], {
-        cwd: process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PORT: '57621' }
-      })
+    log('info', 'Backend', `Starting backend from: ${backendDir}`)
 
-      backendProcess?.stderr?.on('data', (data) => {
-        console.error(`[Backend] stderr: ${data}`)
-      })
+    backendProcess = spawn(pythonCmd, ['-m', 'backend.main'], {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PORT: '57621' }
+    })
 
-      backendProcess?.stdout?.on('data', (data) => {
-        console.log(`[Backend] stdout: ${data}`)
-      })
-    } else {
-      console.log(`[Backend] Production mode, backend script: ${backendScript}`)
-    }
+    backendProcess?.stdout?.on('data', (data) => {
+      const output = data.toString().trim()
+      if (output) {
+        log('info', 'Backend', output)
+      }
+    })
 
+    backendProcess?.stderr?.on('data', (data) => {
+      const output = data.toString().trim()
+      if (output) {
+        log('warn', 'Backend', output)
+      }
+    })
+
+    backendProcess?.on('error', (err) => {
+      log('error', 'Backend', `Process error: ${err.message}`)
+    })
+
+    backendProcess?.on('exit', (code, signal) => {
+      log('info', 'Backend', `Process exited with code ${code}, signal ${signal}`)
+    })
+
+    // Give backend time to start
     setTimeout(resolve, 1000)
   })
 }
 
 app.whenReady().then(async () => {
-  console.log('[Electron] App ready, starting backend...')
+  log('info', 'Electron', 'App ready, starting backend...')
 
-  try {
+  if (VITE_DEV_SERVER_URL) {
+    // Dev mode: start backend directly
     await startBackend()
-    console.log('[Electron] Backend started')
-  } catch (err) {
-    console.error('[Electron] Backend start failed:', err)
-  }
+    log('info', 'Electron', 'Backend started (dev mode)')
+    createWindow()
+  } else {
+    // Production mode: wait for health check
+    await startBackend()
+    log('info', 'Electron', 'Backend process started, running health check...')
 
-  createWindow()
+    const healthy = await checkBackendHealth()
+
+    if (healthy) {
+      log('info', 'Electron', 'Backend health check passed, creating window')
+      createWindow()
+    } else {
+      log('error', 'Electron', 'Backend health check failed, exiting')
+      app.quit()
+    }
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -96,15 +150,23 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    if (backendProcess) {
-      backendProcess.kill()
-    }
     app.quit()
   }
 })
 
 app.on('will-quit', () => {
+  log('info', 'Electron', 'App will-quit, terminating backend...')
+
   if (backendProcess) {
-    backendProcess.kill()
+    // SIGTERM for graceful shutdown
+    backendProcess.kill('SIGTERM')
+
+    // Force kill after 3 seconds if still running
+    setTimeout(() => {
+      if (backendProcess && !backendProcess.killed) {
+        log('warn', 'Backend', 'Force killing backend process')
+        backendProcess.kill('SIGKILL')
+      }
+    }, 3000)
   }
 })
