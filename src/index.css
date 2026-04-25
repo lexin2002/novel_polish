@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f9f9f9;
+  --foreground: #1a1a1a;
+  --card: #f9f9f9;
+  --card-foreground: #1a1a1a;
+  --border: #e0e0e0;
+  --primary: #2a6f9c;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f0f0;
+  --secondary-foreground: #333333;
+  --accent: #ff8c00;
+  --accent-foreground: #ffffff;
+  --muted: #f0f0f0;
+  --muted-foreground: #666666;
+  --destructive: #dc3545;
+  --destructive-foreground: #ffffff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', 'Roboto', sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium
+           hover:bg-primary/90 transition-colors duration-200
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground px-4 py-2 rounded-md font-medium
+           hover:bg-secondary/80 transition-colors duration-200
+           border border-border;
+  }
+
+  .btn-accent {
+    @apply bg-accent text-accent-foreground px-4 py-2 rounded-md font-medium
+           hover:bg-accent/90 transition-colors duration-200;
+  }
+
+  .card {
+    @apply bg-card border border-border rounded-lg shadow-sm;
+  }
+
+  .input {
+    @apply bg-white border border-border rounded-md px-3 py-2 text-foreground
+           placeholder:text-muted-foreground
+           focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
+           transition-colors duration-200;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c0c0c0;
+}

@@ -1,0 +1,15 @@
+
+# 构建产物
+dist/
+dist-electron/
+
+# 测试报告
+playwright-report/
+test-results/
+
+# 日志与临时文件
+*.log
+.DS_Store
+.env
+.env.local
+node_modules
