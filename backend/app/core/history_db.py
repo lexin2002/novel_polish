@@ -175,9 +175,7 @@ class HistoryDatabase:
 
         logger.info(f"Auto-cleanup removed {deleted_count} old snapshots")
 
-    async def get_all_snapshots(
-        self, limit: int = 20
-    ) -> List[Dict[str, Any]]:
+    async def get_all_snapshots(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Get list of all snapshots (newest first)"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
