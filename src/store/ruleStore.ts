@@ -48,6 +48,14 @@ interface RuleStore {
   moveSubCategory: (catIndex: number, fromIndex: number, toIndex: number) => void
   moveRule: (catIndex: number, subIndex: number, fromIndex: number, toIndex: number) => void
 
+  // Add/Delete operations
+  addCategory: () => void
+  deleteCategory: (index: number) => void
+  addSubCategory: (catIndex: number) => void
+  deleteSubCategory: (catIndex: number, subIndex: number) => void
+  addRule: (catIndex: number, subIndex: number) => void
+  deleteRule: (catIndex: number, subIndex: number, ruleIndex: number) => void
+
   // Validation
   validatePriority: (priority: string, validPriorities: string[]) => boolean
   validateAllPriorities: (validPriorities: string[]) => boolean
@@ -197,6 +205,97 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       const [removed] = rules.splice(fromIndex, 1)
       rules.splice(toIndex, 0, removed)
       subCat.rules = rules
+      subs[subIndex] = subCat
+      cat.sub_categories = subs
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  addCategory: () => {
+    set((state) => {
+      if (!state.draft) return state
+      const newCategories = [...state.draft.main_categories]
+      newCategories.push({
+        name: '新类别',
+        priority: 'P2',
+        is_active: true,
+        sub_categories: [],
+      })
+      return { draft: { ...state.draft, main_categories: newCategories } }
+    })
+  },
+
+  deleteCategory: (index: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newCategories = [...state.draft.main_categories]
+      newCategories.splice(index, 1)
+      return { draft: { ...state.draft, main_categories: newCategories } }
+    })
+  },
+
+  addSubCategory: (catIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      cat.sub_categories = [
+        ...cat.sub_categories,
+        { name: '新子类别', priority: 'P2', rules: [] },
+      ]
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  deleteSubCategory: (catIndex: number, subIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      cat.sub_categories = [...cat.sub_categories]
+      cat.sub_categories.splice(subIndex, 1)
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  addRule: (catIndex: number, subIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      const subs = [...cat.sub_categories]
+      const subCat = { ...subs[subIndex] }
+      subCat.rules = [
+        ...subCat.rules,
+        { name: '新规则', is_active: true, instruction: '', direction: '' },
+      ]
+      subs[subIndex] = subCat
+      cat.sub_categories = subs
+      cats[catIndex] = cat
+      newDraft.main_categories = cats
+      return { draft: newDraft }
+    })
+  },
+
+  deleteRule: (catIndex: number, subIndex: number, ruleIndex: number) => {
+    set((state) => {
+      if (!state.draft) return state
+      const newDraft = { ...state.draft }
+      const cats = [...newDraft.main_categories]
+      const cat = { ...cats[catIndex] }
+      const subs = [...cat.sub_categories]
+      const subCat = { ...subs[subIndex] }
+      subCat.rules = [...subCat.rules]
+      subCat.rules.splice(ruleIndex, 1)
       subs[subIndex] = subCat
       cat.sub_categories = subs
       cats[catIndex] = cat

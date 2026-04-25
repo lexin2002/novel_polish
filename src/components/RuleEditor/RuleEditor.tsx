@@ -1,6 +1,22 @@
 import * as React from 'react'
 import * as Switch from '@radix-ui/react-switch'
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   ChevronDown,
   ChevronRight,
   GripVertical,
@@ -8,31 +24,60 @@ import {
   RotateCcw,
   AlertCircle,
   Trash2,
+  Plus,
 } from 'lucide-react'
 import { useRuleStore, MainCategory, SubCategory, Rule } from '../../store/ruleStore'
 
-interface TreeNodeProps {
-  children?: React.ReactNode
-}
-
-const TreeNode: React.FC<TreeNodeProps> = ({ children }) => (
+const TreeNode: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
   <div className="pl-4 border-l border-border ml-2">{children}</div>
 )
+
+interface SortableItemProps {
+  id: string
+  children: React.ReactElement
+  className?: string
+}
+
+const SortableItem: React.FC<SortableItemProps> = ({ id, children, className }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={className}>
+      {React.cloneElement(children, { dragHandleProps: { ...attributes, ...listeners } })}
+    </div>
+  )
+}
 
 interface RuleItemProps {
   catIndex: number
   subIndex: number
   ruleIndex: number
   rule: Rule
+  dragHandleProps?: Record<string, unknown>
 }
 
-const RuleItem: React.FC<RuleItemProps> = ({ catIndex, subIndex, ruleIndex, rule }) => {
-  const { updateRule } = useRuleStore()
+const RuleItem: React.FC<RuleItemProps> = ({ catIndex, subIndex, ruleIndex, rule, dragHandleProps }) => {
+  const { updateRule, deleteRule } = useRuleStore()
 
   return (
     <div className="bg-white border border-border rounded p-3 mb-2">
       <div className="flex items-center gap-2 mb-2">
-        <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+        <div {...dragHandleProps} className="cursor-grab">
+          <GripVertical className="w-4 h-4 text-muted-foreground" />
+        </div>
         <input
           type="text"
           value={rule.name}
@@ -48,6 +93,7 @@ const RuleItem: React.FC<RuleItemProps> = ({ catIndex, subIndex, ruleIndex, rule
           <Switch.Thumb className="block w-4 h-4 bg-white rounded-full transition-transform translate-x-0.5 data-[state=checked]:translate-x-4" />
         </Switch.Root>
         <button
+          onClick={() => deleteRule(catIndex, subIndex, ruleIndex)}
           className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
           title="删除规则"
         >
@@ -85,8 +131,24 @@ interface SubCategoryItemProps {
 
 const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, subCategory }) => {
   const [isExpanded, setIsExpanded] = React.useState(true)
-  const { updateSubCategory } = useRuleStore()
+  const { updateSubCategory, addRule, deleteSubCategory, moveRule } = useRuleStore()
   const priorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const ruleIds = subCategory.rules.map((_, i) => `rule-${catIndex}-${subIndex}-${i}`)
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      const oldIndex = ruleIds.indexOf(active.id as string)
+      const newIndex = ruleIds.indexOf(over.id as string)
+      moveRule(catIndex, subIndex, oldIndex, newIndex)
+    }
+  }
 
   return (
     <div className="mb-2">
@@ -120,18 +182,43 @@ const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, s
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            addRule(catIndex, subIndex)
+          }}
+          className="p-1 text-primary hover:bg-primary/10 rounded"
+          title="添加规则"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteSubCategory(catIndex, subIndex)
+          }}
+          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
+          title="删除子类别"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
       {isExpanded && (
         <TreeNode>
-          {subCategory.rules.map((rule, ruleIdx) => (
-            <RuleItem
-              key={ruleIdx}
-              catIndex={catIndex}
-              subIndex={subIndex}
-              ruleIndex={ruleIdx}
-              rule={rule}
-            />
-          ))}
+          <SortableContext items={ruleIds} strategy={verticalListSortingStrategy}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              {subCategory.rules.map((rule, ruleIdx) => (
+                <SortableItem key={ruleIds[ruleIdx]} id={ruleIds[ruleIdx]}>
+                  <RuleItem
+                    catIndex={catIndex}
+                    subIndex={subIndex}
+                    ruleIndex={ruleIdx}
+                    rule={rule}
+                  />
+                </SortableItem>
+              ))}
+            </DndContext>
+          </SortableContext>
         </TreeNode>
       )}
     </div>
@@ -145,8 +232,24 @@ interface CategoryItemProps {
 
 const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
   const [isExpanded, setIsExpanded] = React.useState(true)
-  const { updateCategory } = useRuleStore()
+  const { updateCategory, addSubCategory, deleteCategory, moveSubCategory } = useRuleStore()
   const priorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const subIds = category.sub_categories.map((_, i) => `sub-${index}-${i}`)
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      const oldIndex = subIds.indexOf(active.id as string)
+      const newIndex = subIds.indexOf(over.id as string)
+      moveSubCategory(index, oldIndex, newIndex)
+    }
+  }
 
   return (
     <div className="mb-4">
@@ -190,17 +293,42 @@ const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
         >
           <Switch.Thumb className="block w-4 h-4 bg-white rounded-full transition-transform translate-x-0.5 data-[state=checked]:translate-x-4" />
         </Switch.Root>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            addSubCategory(index)
+          }}
+          className="p-1 text-primary hover:bg-primary/10 rounded"
+          title="添加子类别"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteCategory(index)
+          }}
+          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
+          title="删除类别"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
       {isExpanded && (
         <TreeNode>
-          {category.sub_categories.map((sub, subIdx) => (
-            <SubCategoryItem
-              key={subIdx}
-              catIndex={index}
-              subIndex={subIdx}
-              subCategory={sub}
-            />
-          ))}
+          <SortableContext items={subIds} strategy={verticalListSortingStrategy}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              {category.sub_categories.map((sub, subIdx) => (
+                <SortableItem key={subIds[subIdx]} id={subIds[subIdx]}>
+                  <SubCategoryItem
+                    catIndex={index}
+                    subIndex={subIdx}
+                    subCategory={sub}
+                  />
+                </SortableItem>
+              ))}
+            </DndContext>
+          </SortableContext>
         </TreeNode>
       )}
     </div>
@@ -218,7 +346,15 @@ export const RuleEditor: React.FC = () => {
     submitRules,
     revertRules,
     clearValidationErrors,
+    moveCategory,
   } = useRuleStore()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const catIds = draft?.main_categories.map((_, i) => `cat-${i}`) || []
 
   React.useEffect(() => {
     fetchRules()
@@ -228,6 +364,15 @@ export const RuleEditor: React.FC = () => {
     const success = await submitRules()
     if (success) {
       clearValidationErrors()
+    }
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id && draft) {
+      const oldIndex = catIds.indexOf(active.id as string)
+      const newIndex = catIds.indexOf(over.id as string)
+      moveCategory(oldIndex, newIndex)
     }
   }
 
@@ -265,6 +410,13 @@ export const RuleEditor: React.FC = () => {
             </span>
           )}
           <button
+            onClick={() => useRuleStore.getState().addCategory()}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            添加类别
+          </button>
+          <button
             onClick={revertRules}
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
           >
@@ -299,9 +451,15 @@ export const RuleEditor: React.FC = () => {
 
       {/* Tree Editor */}
       <div className="flex-1 overflow-y-auto p-4">
-        {draft.main_categories.map((category, idx) => (
-          <CategoryItem key={idx} index={idx} category={category} />
-        ))}
+        <SortableContext items={catIds} strategy={verticalListSortingStrategy}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            {draft.main_categories.map((category, idx) => (
+              <SortableItem key={catIds[idx]} id={catIds[idx]}>
+                <CategoryItem index={idx} category={category} />
+              </SortableItem>
+            ))}
+          </DndContext>
+        </SortableContext>
 
         {draft.main_categories.length === 0 && (
           <div className="text-center text-muted-foreground py-8">
