@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.rest import router as rest_router
+from app.api.rest import router as rest_router, set_polishing_service
 from app.api.ws import websocket_logs, setup_logging_handler
 from app.core.config import (
     CORS_ORIGINS,
@@ -18,6 +18,8 @@ from app.core.config import (
 )
 from app.core.config_manager import get_config_manager
 from app.core.history_db import get_history_db
+from app.core.siliconflow_client import create_siliconflow_client
+from app.engine.polishing_service import create_polishing_service
 
 # Configure root logger
 logging.basicConfig(
@@ -47,10 +49,38 @@ async def lifespan(app: FastAPI):
         max_snapshots = config.get("history", {}).get("max_snapshots", 20)
         history_db.set_max_snapshots(max_snapshots)
         logger.info(f"History max_snapshots set to {max_snapshots}")
+
+        # Initialize SiliconFlow client and polishing service if API key is configured
+        llm_config = config.get("llm", {})
+        api_key = llm_config.get("api_key", "")
+        if api_key:
+            logger.info("SiliconFlow API key configured, initializing polishing service")
+            client = await create_siliconflow_client(
+                api_key=api_key,
+                base_url=llm_config.get("base_url"),
+                model=llm_config.get("model"),
+            )
+            service = await create_polishing_service(client)
+            set_polishing_service(service)
+            logger.info("Polishing service initialized successfully")
+        else:
+            logger.warning("No SiliconFlow API key configured - /api/polish will return 503")
+
     except Exception as e:
-        logger.warning(f"Could not load max_snapshots config: {e}")
+        logger.warning(f"Could not load config: {e}")
 
     yield
+
+    # Cleanup
+    service = None
+    try:
+        from app.api.rest import get_polishing_service
+        service = get_polishing_service()
+        if service and service.llm_client:
+            await service.llm_client.close()
+    except Exception as e:
+        logger.warning(f"Error closing LLM client: {e}")
+
     logger.info("Novel Polish Backend shutting down")
 
 

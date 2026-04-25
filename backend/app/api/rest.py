@@ -1,11 +1,28 @@
-"""REST API endpoints for config, rules, and history"""
+"""REST API endpoints for config, rules, history, and polishing"""
 
-from typing import Any, Dict, List
+import logging
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
 from app.core.config_manager import get_config_manager
 from app.core.history_db import get_history_db
+
+logger = logging.getLogger(__name__)
+
+# Global polishing service (set via startup event)
+_polishing_service: Optional[Any] = None
+
+
+def set_polishing_service(service: Any) -> None:
+    """Set the global polishing service instance"""
+    global _polishing_service
+    _polishing_service = service
+
+
+def get_polishing_service() -> Any:
+    """Get the global polishing service instance"""
+    return _polishing_service
 
 router = APIRouter()
 
@@ -88,3 +105,48 @@ async def delete_history(snapshot_id: int) -> Dict[str, Any]:
     if not success:
         raise HTTPException(status_code=404, detail="Snapshot not found")
     return {"status": "ok", "message": "Snapshot deleted"}
+
+
+@router.post("/api/polish")
+async def polish_text(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Polish fiction text using LLM.
+
+    Request body:
+        text: str - The fiction text to polish
+        rules_state: Optional[Dict] - Rules to apply
+        enable_safety_exempt: Optional[bool] - Enable safety exemption (default: True)
+        enable_xml_isolation: Optional[bool] - Enable XML isolation (default: True)
+
+    Returns:
+        Dict with polished_text, modifications, chunks_processed, total_tokens
+    """
+    from app.engine.polishing_service import PolishRequest
+
+    service = get_polishing_service()
+    if service is None:
+        raise HTTPException(status_code=503, detail="Polishing service not initialized")
+
+    text = request.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    polish_request = PolishRequest(
+        text=text,
+        rules_state=request.get("rules_state"),
+        enable_safety_exempt=request.get("enable_safety_exempt", True),
+        enable_xml_isolation=request.get("enable_xml_isolation", True),
+    )
+
+    try:
+        result = await service.polish_text(polish_request)
+        return {
+            "original_text": result.original_text,
+            "polished_text": result.polished_text,
+            "modifications": result.modifications,
+            "chunks_processed": result.chunks_processed,
+            "total_tokens": result.total_tokens,
+        }
+    except Exception as e:
+        logger.error(f"Polish request failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
