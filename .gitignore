@@ -1,15 +1,57 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# 构建产物
+# Build
 dist/
 dist-electron/
+release/
+*.egg-info/
 
-# 测试报告
-playwright-report/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
 test-results/
+playwright-report/
+.coverage
+.pytest_cache/
 
-# 日志与临时文件
+# Logs
+logs/
 *.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment
 .env
 .env.local
-node_modules
+
+# Temporary files
+.tmp/
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv/
+
+# Data files (keep structure but ignore contents)
+data/*.jsonc
+data/*.json
+data/*.db
+data/*.lock
+
+# Except defaults
+backend/data/.gitkeep
