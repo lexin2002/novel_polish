@@ -168,9 +168,8 @@ class ConfigurationManager:
                 logger.debug("Config read successfully")
                 return data
             except Exception as e:
-                logger.warning(
-                    f"Config read failed: {e}, falling back to default"
-                )
+                msg = f"Config read failed: {e}, falling back to default"
+                logger.warning(msg)
                 return DEFAULT_CONFIG.copy()
 
     def write_config(self, data: Dict[str, Any]) -> None:
@@ -217,9 +216,8 @@ class ConfigurationManager:
                 logger.debug("Rules read successfully")
                 return data
             except Exception as e:
-                logger.warning(
-                    f"Rules read failed: {e}, falling back to default"
-                )
+                msg = f"Rules read failed: {e}, falling back to default"
+                logger.warning(msg)
                 return DEFAULT_RULES.copy()
 
     def write_rules(self, data: Dict[str, Any]) -> None:

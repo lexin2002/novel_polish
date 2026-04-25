@@ -3,8 +3,9 @@
 import asyncio
 import logging
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.api.ws import WebSocketLogHandler, active_connections
+from unittest.mock import AsyncMock, MagicMock
+from fastapi import WebSocketDisconnect
+from app.api.ws import WebSocketLogHandler, active_connections, websocket_logs
 
 
 @pytest.mark.asyncio
@@ -90,6 +91,41 @@ async def test_websocket_handler_emit_multiple_clients():
         active_connections.discard(mock_ws2)
 
 
+@pytest.mark.asyncio
+async def test_websocket_logs_endpoint_infers_disconnect():
+    """Test websocket_logs function handles WebSocketDisconnect"""
+    from fastapi import WebSocketDisconnect
+
+    # Mock WebSocket that raises disconnect
+    mock_ws = AsyncMock()
+    mock_ws.accept = AsyncMock()
+    mock_ws.receive_text = AsyncMock(side_effect=WebSocketDisconnect())
+    mock_ws.close = AsyncMock()
+
+    # Should not raise, just exit gracefully
+    await websocket_logs(mock_ws)
+
+    # Verify accept was called
+    mock_ws.accept.assert_called_once()
+    # Verify the connection was added and then removed
+    assert mock_ws not in active_connections
+
+
+@pytest.mark.asyncio
+async def test_websocket_logs_handles_ping():
+    """Test websocket_logs function handles ping/pong"""
+    mock_ws = AsyncMock()
+    mock_ws.accept = AsyncMock()
+    mock_ws.receive_text = AsyncMock(side_effect=["ping", WebSocketDisconnect()])
+    mock_ws.send_text = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    await websocket_logs(mock_ws)
+
+    # Should have responded to ping with pong
+    mock_ws.send_text.assert_called_with("pong")
+
+
 def test_websocket_log_handler_creation():
     """Test WebSocketLogHandler can be instantiated"""
     handler = WebSocketLogHandler()
@@ -138,3 +174,25 @@ def test_no_connections_no_error():
 
     # Should not raise
     handler.emit(record)
+
+
+@pytest.mark.asyncio
+async def test_websocket_logs_endpoint_with_real_async():
+    """Test websocket_logs with simulated receive_text and close"""
+    mock_ws = AsyncMock()
+    mock_ws.accept = AsyncMock()
+    mock_ws.receive_text = AsyncMock()
+    mock_ws.send_text = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    # Simulate the loop handling
+    active_connections.add(mock_ws)
+
+    # Verify cleanup on disconnect path
+    mock_ws.receive_text.side_effect = Exception("Connection closed")
+    try:
+        await websocket_logs(mock_ws)
+    except Exception:
+        pass
+
+    assert mock_ws not in active_connections
