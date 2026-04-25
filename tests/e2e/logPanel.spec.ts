@@ -71,12 +71,10 @@ test.describe('LogPanel E2E Tests', () => {
 
     // Evaluate script to inject mock WebSocket
     await page.evaluate(() => {
-      const originalWebSocket = window.WebSocket
-      // @ts-ignore
-      window.WebSocket = function(url: string) {
+      // @ts-expect-error - Mocking WebSocket for testing
+      window.WebSocket = function(_url: string) {
         const mockWs = {
           readyState: 1,
-          url,
           close: () => {},
           send: () => {},
           onopen: null,
@@ -111,17 +109,17 @@ test.describe('LogPanel E2E Tests', () => {
         }, 100)
         return mockWs
       }
-      // @ts-ignore
+      // @ts-expect-error - Mocking WebSocket constants
       window.WebSocket.CONNECTING = 0
-      // @ts-ignore
+      // @ts-expect-error - Mocking WebSocket constants
       window.WebSocket.CLOSED = 3
     })
 
     // Wait for progress bar to appear
     await page.waitForTimeout(200)
 
-    // Should show progress indicator with chunk/iteration info
-    await expect(page.locator('text=块 2/5，迭代 3/4')).toBeVisible()
+    // Should show progress indicator with chunk/iteration info (use first() to avoid strict mode)
+    await expect(page.locator('text=块 2/5，迭代 3/4').first()).toBeVisible()
   })
 
   test('should show log entry count', async ({ page }) => {

@@ -3,6 +3,7 @@ import { BookOpen, Settings, History, FileText, Terminal } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { RuleEditor } from './components/RuleEditor'
 import { LogPanel } from './components/LogPanel'
+import { Workbench } from './components/Workbench'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
 
@@ -32,25 +33,25 @@ function App() {
 
   const renderMainContent = () => {
     switch (activeTab) {
+      case 'polish':
+        return <Workbench />
       case 'rules':
         return <RuleEditor />
-      case 'polish':
       case 'history':
       case 'config':
-      default:
         return (
           <div className="bg-white border border-border rounded-lg p-8 text-center h-full flex flex-col items-center justify-center">
             <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-foreground mb-2">
-              {tabs.find((t) => t.id === activeTab)?.label}
+              {activeTab === 'history' ? '历史档案馆' : '配置驾驶舱'}
             </h2>
             <p className="text-muted-foreground">
-              {activeTab === 'polish' && '粘贴原文，开始智能润色之旅'}
-              {activeTab === 'history' && '查看历史润色记录'}
-              {activeTab === 'config' && '在左侧配置驾驶舱中调整系统参数'}
+              {activeTab === 'history' ? '查看历史润色记录' : '在左侧配置驾驶舱中调整系统参数'}
             </p>
           </div>
         )
+      default:
+        return null
     }
   }
 
