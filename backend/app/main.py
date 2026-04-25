@@ -16,6 +16,8 @@ from app.core.config import (
     LOG_FORMAT,
     PORT,
 )
+from app.core.config_manager import get_config_manager
+from app.core.history_db import get_history_db
 
 # Configure root logger
 logging.basicConfig(
@@ -34,6 +36,20 @@ async def lifespan(app: FastAPI):
     logger.info(f"Novel Polish Backend starting on {HOST}:{PORT}")
     logger.info("REST API: GET /api/health")
     logger.info("WebSocket: WS /ws/logs")
+
+    # Initialize history database
+    history_db = get_history_db()
+    await history_db.initialize()
+
+    # Set max snapshots from config
+    try:
+        config = get_config_manager().read_config()
+        max_snapshots = config.get("history", {}).get("max_snapshots", 20)
+        history_db.set_max_snapshots(max_snapshots)
+        logger.info(f"History max_snapshots set to {max_snapshots}")
+    except Exception as e:
+        logger.warning(f"Could not load max_snapshots config: {e}")
+
     yield
     logger.info("Novel Polish Backend shutting down")
 
