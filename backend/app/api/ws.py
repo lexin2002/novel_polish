@@ -34,9 +34,8 @@ class WebSocketLogHandler(logging.Handler):
 def setup_logging_handler(logger: logging.Logger) -> WebSocketLogHandler:
     """Attach WebSocket handler to a logger"""
     handler = WebSocketLogHandler()
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
+    fmt = "%(asctime)s - %(levelname)s - %(message)s"
+    handler.setFormatter(logging.Formatter(fmt))
     logger.addHandler(handler)
     return handler
 
