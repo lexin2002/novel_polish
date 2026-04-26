@@ -35,13 +35,7 @@ jobs:
       - name: Build Python backend with PyInstaller
         run: |
           cd backend
-          pyinstaller --onefile --name polish-backend ^
-            --hidden-import=aiosqlite ^
-            --hidden-import=filelock ^
-            --hidden-import=json5 ^
-            --add-data "app;app" ^
-            --add-data "requirements.txt;." ^
-            app/main.py
+          pyinstaller --onefile --console --name polish-backend app/main.py
 
       - name: Move backend executable
         run: mv backend/dist/polish-backend.exe release/
