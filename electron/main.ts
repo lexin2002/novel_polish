@@ -1,157 +1,85 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'path'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn } from 'child_process'
 
 let mainWindow: BrowserWindow | null = null
-let backendProcess: ChildProcess | null = null
+let backendProcess: ReturnType<typeof spawn> | null = null
 
-const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
-const BACKEND_URL = 'http://localhost:57621'
-const HEALTH_CHECK_TIMEOUT = 10000
-const HEALTH_CHECK_INTERVAL = 500
+const isDev = !!process.env.VITE_DEV_SERVER_URL
 
-// Simple __dirname replacement using app.getAppPath()
-function getBasePath(): string {
-  if (VITE_DEV_SERVER_URL) {
-    return process.cwd()
-  }
-  // Production: use app.getPath('exe') directory
-  return path.dirname(app.getPath('exe'))
+function log(level: 'info' | 'error' | 'warn', msg: string) {
+  console[level](`[${new Date().toISOString()}] [${level.toUpperCase()}] ${msg}`)
 }
 
-function log(level: 'info' | 'error' | 'warn', source: string, message: string) {
-  const timestamp = new Date().toISOString()
-  console[`${level}`](`[${timestamp}] [${source}] ${message}`)
-}
-
-async function checkBackendHealth(): Promise<boolean> {
-  const startTime = Date.now()
-
-  while (Date.now() - startTime < HEALTH_CHECK_TIMEOUT) {
+async function waitForBackend(): Promise<boolean> {
+  const timeout = 10000
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/health`)
-      if (response.ok) {
-        log('info', 'Backend', 'Health check passed')
-        return true
-      }
-    } catch {
-      // Backend not ready
-    }
-    await new Promise(resolve => setTimeout(resolve, HEALTH_CHECK_INTERVAL))
+      const res = await fetch('http://localhost:57621/api/health')
+      if (res.ok) return true
+    } catch {}
+    await new Promise(r => setTimeout(r, 500))
   }
-  log('error', 'Backend', `Health check timeout after ${HEALTH_CHECK_TIMEOUT}ms`)
   return false
 }
 
 function createWindow() {
-  const basePath = getBasePath()
+  const baseDir = isDev ? process.cwd() : path.dirname(app.getPath('exe'))
 
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 1200,
-    minHeight: 700,
     backgroundColor: '#f9f9f9',
     webPreferences: {
-      preload: path.join(basePath, 'dist-electron', 'preload.js'),
+      preload: path.join(baseDir, 'dist-electron', 'preload.mjs'),
       nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false
+      contextIsolation: true
     },
     show: false,
     title: '小说智能润色工作台'
   })
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
-  if (VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(VITE_DEV_SERVER_URL)
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(basePath, 'dist', 'index.html'))
+    mainWindow.loadFile(path.join(baseDir, 'dist', 'index.html'))
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  mainWindow.on('closed', () => { mainWindow = null })
 }
 
-function startBackend(): Promise<void> {
-  return new Promise((resolve) => {
-    const basePath = getBasePath()
-    const backendPath = path.join(basePath, 'backend')
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+function startBackend() {
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const baseDir = isDev ? process.cwd() : path.dirname(app.getPath('exe'))
+  const backendDir = path.join(baseDir, 'backend')
 
-    log('info', 'Backend', `Starting backend from: ${backendPath}`)
+  log('info', `Starting backend from: ${backendDir}`)
 
-    backendProcess = spawn(pythonCmd, ['-m', 'backend.main'], {
-      cwd: basePath,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PORT: '57621' },
-      detached: false
-    })
+  // Set PYTHONPATH to include backend directory
+  const pythonPath = isDev 
+    ? `${baseDir}:${path.delimiter}${process.env.PYTHONPATH || ''}`
+    : `${baseDir}${path.delimiter}${baseDir}`
 
-    backendProcess?.stdout?.on('data', (data) => {
-      const output = data.toString().trim()
-      if (output) log('info', 'Backend', output)
-    })
-
-    backendProcess?.stderr?.on('data', (data) => {
-      const output = data.toString().trim()
-      if (output) log('warn', 'Backend', output)
-    })
-
-    backendProcess?.on('error', (err) => {
-      log('error', 'Backend', `Process error: ${err.message}`)
-    })
-
-    backendProcess?.on('exit', (code, signal) => {
-      log('info', 'Backend', `Process exited with code ${code}, signal ${signal}`)
-    })
-
-    setTimeout(resolve, 1000)
+  backendProcess = spawn(python, ['app/main.py'], {
+    cwd: backendDir,
+    env: { ...process.env, PORT: '57621', PYTHONPATH: pythonPath },
+    stdio: 'pipe'
   })
+
+  backendProcess.stdout?.on('data', (data) => log('info', data.toString().trim()))
+  backendProcess.stderr?.on('data', (data) => log('warn', data.toString().trim()))
 }
 
 app.whenReady().then(async () => {
-  log('info', 'Electron', 'App ready, starting backend...')
-
-  await startBackend()
-  log('info', 'Electron', 'Backend started')
-
-  const healthy = await checkBackendHealth()
-
-  if (healthy) {
-    log('info', 'Electron', 'Backend healthy, creating window')
-    createWindow()
-  } else {
-    log('error', 'Electron', 'Backend health check failed')
-    app.quit()
-  }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
-  })
+  startBackend()
+  const ok = await waitForBackend()
+  if (ok) createWindow()
+  else app.quit()
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
-
-app.on('will-quit', () => {
-  log('info', 'Electron', 'App will-quit, terminating backend...')
-  if (backendProcess) {
-    backendProcess.kill('SIGTERM')
-  }
-})
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('will-quit', () => { backendProcess?.kill() })

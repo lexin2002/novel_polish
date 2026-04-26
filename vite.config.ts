@@ -10,42 +10,26 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
-        onstart(options) {
-          options.startup()
-        },
+        onstart(options) { options.startup() },
         vite: {
           build: {
             outDir: 'dist-electron',
-            lib: {
-              entry: 'electron/main.ts',
-              formats: ['cjs']
-            },
             rollupOptions: {
-              external: ['electron', 'path', 'url', 'child_process'],
-              output: {
-                entryFileNames: '[name].js'
-              }
+              external: ['electron'],
+              output: { format: 'es', entryFileNames: '[name].mjs' }
             }
           }
         }
       },
       {
         entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload()
-        },
+        onstart(options) { options.reload() },
         vite: {
           build: {
             outDir: 'dist-electron',
-            lib: {
-              entry: 'electron/preload.ts',
-              formats: ['cjs']
-            },
             rollupOptions: {
               external: ['electron'],
-              output: {
-                entryFileNames: '[name].js'
-              }
+              output: { format: 'es', entryFileNames: '[name].mjs' }
             }
           }
         }
@@ -53,13 +37,6 @@ export default defineConfig({
     ]),
     renderer()
   ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src')
-    }
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true
-  }
+  resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  build: { outDir: 'dist', emptyOutDir: true }
 })

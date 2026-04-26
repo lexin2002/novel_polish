@@ -4,7 +4,7 @@
   "type": "module",
   "author": "NovelPolish Team",
   "description": "桌面级小说智能润色工作台",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
