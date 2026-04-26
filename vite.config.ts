@@ -16,8 +16,15 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            lib: {
+              entry: 'electron/main.ts',
+              formats: ['cjs']
+            },
             rollupOptions: {
-              external: ['electron']
+              external: ['electron', 'path', 'url', 'child_process'],
+              output: {
+                entryFileNames: '[name].js'
+              }
             }
           }
         }
@@ -30,8 +37,15 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            lib: {
+              entry: 'electron/preload.ts',
+              formats: ['cjs']
+            },
             rollupOptions: {
-              external: ['electron']
+              external: ['electron'],
+              output: {
+                entryFileNames: '[name].js'
+              }
             }
           }
         }
