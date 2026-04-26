@@ -176,7 +176,7 @@ export const Sidebar: React.FC = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Settings className="w-5 h-5" />
-              配置驾驶舱
+              系统设置
             </h2>
             <button
               onClick={resetConfig}
@@ -188,7 +188,7 @@ export const Sidebar: React.FC = () => {
             </button>
           </div>
         </div>
-        <div className="p-4 text-destructive">配置加载失败</div>
+        <div className="p-4 text-destructive">配置加载失败，请刷新页面重试</div>
       </aside>
     )
   }
@@ -209,7 +209,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Settings className="w-5 h-5" />
-            配置驾驶舱
+            系统设置
           </h2>
           <button
             onClick={resetConfig}

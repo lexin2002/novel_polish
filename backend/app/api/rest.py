@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from app.core.config_manager import get_config_manager
+from app.core.config_manager import get_config_manager, DEFAULT_CONFIG
 from app.core.history_db import get_history_db
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,22 @@ async def patch_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     """Partially update configuration (supports nested keys)"""
     manager = get_config_manager()
     return manager.patch_config(patch)
+
+
+@router.post("/api/config")
+async def post_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Reset configuration to provided values (full replacement)"""
+    manager = get_config_manager()
+    manager.write_config(config)
+    return {"status": "ok", "message": "Config reset successfully"}
+
+
+@router.post("/api/config/reset")
+async def reset_config() -> Dict[str, Any]:
+    """Reset configuration to defaults"""
+    manager = get_config_manager()
+    manager.write_config(DEFAULT_CONFIG)
+    return {"status": "ok", "message": "Config reset to defaults"}
 
 
 @router.get("/api/config/path")

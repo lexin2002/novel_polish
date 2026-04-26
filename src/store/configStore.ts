@@ -134,7 +134,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   resetConfig: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await axios.post<ConfigState>('/api/config', DEFAULT_CONFIG)
+      await axios.post('/api/config/reset')
+      // Fetch the default config after reset
+      const response = await axios.get<ConfigState>('/api/config')
       set({ config: response.data, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to reset config'

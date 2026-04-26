@@ -24,7 +24,7 @@ function App() {
     { id: 'polish' as TabType, label: '润色工作台', icon: FileText },
     { id: 'rules' as TabType, label: '规则配置中心', icon: Settings },
     { id: 'history' as TabType, label: '历史档案馆', icon: History },
-    { id: 'config' as TabType, label: '配置驾驶舱', icon: BookOpen },
+    { id: 'config' as TabType, label: '系统设置', icon: BookOpen },
   ]
 
   const toggleLogPanel = () => {
@@ -43,7 +43,7 @@ function App() {
           <div className="bg-white border border-border rounded-lg p-8 text-center h-full flex flex-col items-center justify-center">
             <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-foreground mb-2">
-              {activeTab === 'history' ? '历史档案馆' : '配置驾驶舱'}
+              {activeTab === 'history' ? '历史档案馆' : '系统设置'}
             </h2>
             <p className="text-muted-foreground">
               {activeTab === 'history' ? '查看历史润色记录' : '在左侧配置驾驶舱中调整系统参数'}
