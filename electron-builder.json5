@@ -17,12 +17,19 @@
       "filter": ["**/*"]
     }
   ],
+  "win": {
+    "target": "nsis"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  },
   "mac": {
-    "target": "dmg",
-    "icon": "build/icon.icns"
+    "target": "dmg"
   },
   "linux": {
-    "target": "AppImage",
-    "icon": "build/icon.png"
-  }
+    "target": "AppImage"
+  },
+  "publish": null
 }
