@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import platform
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -10,6 +11,28 @@ import filelock
 import json5
 
 logger = logging.getLogger(__name__)
+
+
+def _get_config_dir() -> Path:
+    """Get platform-appropriate user config directory.
+
+    Returns:
+        Path to the config directory:
+        - Linux/macOS: ~/.config/NovelPolish
+        - Windows: %APPDATA%/NovelPolish
+    """
+    if platform.system() == "Windows":
+        base = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+        config_dir = Path(base) / "NovelPolish"
+    else:
+        # Linux/macOS: ~/.config/NovelPolish
+        config_dir = Path.home() / ".config" / "NovelPolish"
+
+    # Ensure directory exists
+    config_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Config directory: {config_dir}")
+    return config_dir
+
 
 # Default configuration structure
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -102,9 +125,12 @@ DEFAULT_RULES: Dict[str, Any] = {
 class ConfigurationManager:
     """Manage atomic read/write of config.jsonc and rules.json with FileLock"""
 
-    def __init__(self, data_dir: str = "./data"):
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, data_dir: Optional[str] = None):
+        if data_dir is None:
+            self.data_dir = _get_config_dir()
+        else:
+            self.data_dir = Path(data_dir)
+            self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.config_path = self.data_dir / "config.jsonc"
         self.rules_path = self.data_dir / "rules.json"
