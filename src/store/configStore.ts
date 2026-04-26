@@ -116,6 +116,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       set({ config: response.data, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch config'
+      console.error('[ConfigStore] fetchConfig error:', message, err)
       set({ error: message, isLoading: false })
     }
   },

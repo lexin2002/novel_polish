@@ -156,7 +156,7 @@ const TextItem: React.FC<TextItemProps> = ({ label, value, placeholder, type = '
 )
 
 export const Sidebar: React.FC = () => {
-  const { config, isLoading, isSyncing, updateConfig, resetConfig } = useConfigStore()
+  const { config, isLoading, isSyncing, error, updateConfig, resetConfig, fetchConfig } = useConfigStore()
 
   if (isLoading) {
     return (
@@ -169,7 +169,7 @@ export const Sidebar: React.FC = () => {
     )
   }
 
-  if (!config) {
+  if (error) {
     return (
       <aside className="w-80 bg-white border-r border-border overflow-y-auto">
         <div className="p-4 border-b border-border sticky top-0 bg-white z-10">
@@ -179,16 +179,24 @@ export const Sidebar: React.FC = () => {
               系统设置
             </h2>
             <button
-              onClick={resetConfig}
-              className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-              title="重置为默认"
+              onClick={() => fetchConfig()}
+              className="flex items-center gap-1 px-2 py-1 text-sm text-primary hover:bg-secondary rounded transition-colors"
+              title="刷新"
             >
               <RotateCcw className="w-4 h-4" />
-              重置
             </button>
           </div>
         </div>
-        <div className="p-4 text-destructive">配置加载失败，请刷新页面重试</div>
+        <div className="p-4">
+          <p className="text-destructive text-sm">加载配置失败</p>
+          <p className="text-muted-foreground text-xs mt-1">错误: {error}</p>
+          <button
+            onClick={() => fetchConfig()}
+            className="mt-3 px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary/90"
+          >
+            重试
+          </button>
+        </div>
       </aside>
     )
   }
