@@ -1,5 +1,6 @@
 """Unified LLM API client - supports OpenAI-compatible and Anthropic-compatible APIs"""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -49,6 +50,23 @@ class LLMClient:
         self.api_type = api_type or self._detect_api_type(self.base_url)
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        self._client_lock = asyncio.Lock()
+
+    async def get_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client with async lock for coroutine safety."""
+        if self._client is None:
+            async with self._client_lock:
+                # Double-check after acquiring lock
+                if self._client is None:
+                    self._client = httpx.AsyncClient(
+                        base_url=self.base_url,
+                        timeout=self.timeout,
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+        return self._client
 
     def _detect_api_type(self, base_url: str) -> str:
         """
@@ -60,20 +78,6 @@ class LLMClient:
         if "anthropic.com" in base_url:
             return "anthropic"
         return "openai"
-
-    @property
-    def client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client. In single-threaded async, this is safe."""
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=self.timeout,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-        return self._client
 
     async def close(self) -> None:
         if self._client is not None:
@@ -117,7 +121,8 @@ class LLMClient:
         )
 
         try:
-            response = await self.client.post("/chat/completions", json=payload)
+            client = await self.get_client()
+            response = await client.post("/chat/completions", json=payload)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
@@ -194,7 +199,8 @@ class LLMClient:
         }
 
         try:
-            response = await self.client.post(
+            client = await self.get_client()
+            response = await client.post(
                 "/messages",
                 json=payload,
                 headers=headers,
