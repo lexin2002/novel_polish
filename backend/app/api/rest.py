@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.core.config_manager import get_config_manager, DEFAULT_CONFIG
 from app.core.history_db import get_history_db
@@ -182,8 +183,16 @@ async def delete_history(snapshot_id: int) -> Dict[str, Any]:
     return {"status": "ok", "message": "Snapshot deleted"}
 
 
+class PolishTextRequest(BaseModel):
+    """Request body for POST /api/polish"""
+    text: str = Field(..., min_length=1, max_length=100000, description="Fiction text to polish")
+    rules_state: Optional[Dict[str, Any]] = Field(None, description="Rules to apply")
+    enable_safety_exempt: bool = Field(True, description="Enable safety exemption")
+    enable_xml_isolation: bool = Field(True, description="Enable XML isolation")
+
+
 @router.post("/api/polish")
-async def polish_text(request: Dict[str, Any]) -> Dict[str, Any]:
+async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
     """
     Polish fiction text using LLM.
 
@@ -202,15 +211,11 @@ async def polish_text(request: Dict[str, Any]) -> Dict[str, Any]:
     if service is None:
         raise HTTPException(status_code=503, detail="Polishing service not initialized")
 
-    text = request.get("text", "")
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-
     polish_request = PolishRequest(
-        text=text,
-        rules_state=request.get("rules_state"),
-        enable_safety_exempt=request.get("enable_safety_exempt", True),
-        enable_xml_isolation=request.get("enable_xml_isolation", True),
+        text=request.text,
+        rules_state=request.rules_state,
+        enable_safety_exempt=request.enable_safety_exempt,
+        enable_xml_isolation=request.enable_xml_isolation,
     )
 
     try:
