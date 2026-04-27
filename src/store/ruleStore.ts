@@ -102,7 +102,8 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       const response = await axios.get<RulesState>('/api/rules')
       const data = response.data
       // Deep clone & ensure every node has a unique id for stable drag & drop keys
-      const withIds = ensureIds(JSON.parse(JSON.stringify(data)))
+      // ensureIds already deep-clones via spread operators, no extra clone needed
+      const withIds = ensureIds(data)
       set({
         draft: withIds,
         original: withIds,
@@ -131,7 +132,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       set({ isSyncing: true, error: null })
       await axios.post('/api/rules', draft)
       set((state) => ({
-        original: state.draft ? JSON.parse(JSON.stringify(state.draft)) : null,
+        original: state.draft ? structuredClone(state.draft) : null,
         isSyncing: false,
       }))
       return true

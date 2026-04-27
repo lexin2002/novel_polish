@@ -77,10 +77,14 @@ export const LogPanel: React.FC<LogPanelProps> = ({ url = 'ws://localhost:57621/
   const logsEndRef = React.useRef<HTMLDivElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom unless paused
+  // Auto-scroll to bottom unless paused; only scroll if user is near the bottom
   React.useEffect(() => {
-    if (!isPaused && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    if (!isPaused && logsEndRef.current && containerRef.current) {
+      const el = containerRef.current
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+      if (isNearBottom) {
+        logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      }
     }
   }, [logs, isPaused])
 

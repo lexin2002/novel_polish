@@ -57,8 +57,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Left Sidebar - Config Cockpit */}
-      {activeTab === 'config' && <Sidebar />}
+      {/* Left Sidebar - Config Cockpit (always mounted, hidden via CSS) */}
+      <div className={activeTab === 'config' ? '' : 'hidden'}>
+        <Sidebar />
+      </div>
 
       {/* Main Area */}
       <div className="flex-1 flex flex-col">
