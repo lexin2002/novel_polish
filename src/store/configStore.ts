@@ -192,14 +192,14 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     }
   },
 
-  updateConfig: (patch: Partial<ConfigState>) => {
-    const { config, debouncedPatch } = get()
-    if (!config) return
-
-    set({ config: { ...config, ...patch } })
+  updateConfig: (newConfig: Partial<ConfigState>) => {
+    const { debouncedPatch } = get()
+    // newConfig is already a complete deep-cloned config from Sidebar's update function
+    // Just set it directly without shallow merging
+    set({ config: newConfig as ConfigState })
 
     if (debouncedPatch) {
-      debouncedPatch(patch)
+      debouncedPatch(newConfig)
     }
   },
 }))
