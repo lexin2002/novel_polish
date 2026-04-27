@@ -174,6 +174,11 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
 
   React.useEffect(() => {
     return () => {
+      // Abort any in-flight polish request on unmount (handles StrictMode & tab switch)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+      }
       if (diffEditorRef.current) {
         diffEditorRef.current.dispose()
         diffEditorRef.current = null
@@ -201,6 +206,10 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
   const handleStart = async () => {
     setIsRunning(true)
     setRevisedText('')
+    // Abort any previous controller before creating a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
     abortControllerRef.current = new AbortController()
 
     try {
