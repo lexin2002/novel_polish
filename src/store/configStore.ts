@@ -2,18 +2,24 @@ import { create } from 'zustand'
 import axios from 'axios'
 import debounce from 'lodash.debounce'
 
+export interface ProviderConfig {
+  name: string
+  api_key: string
+  base_url: string
+  models: string[]
+  active_model: string
+}
+
 export interface ConfigState {
   priority_order: string[]
   llm: {
-    provider: string
-    model: string
-    api_key: string
-    base_url: string
+    active_provider: string
     temperature: number
     max_tokens: number
     safety_exempt_enabled: boolean
     xml_tag_isolation_enabled: boolean
     desensitize_mode: boolean
+    providers: Record<string, ProviderConfig>
   }
   engine: {
     chunk_size: number
@@ -60,45 +66,49 @@ interface ConfigStore {
   debouncedPatch: ((patch: Partial<ConfigState>) => void) | null
 }
 
-const DEFAULT_CONFIG: ConfigState = {
-  priority_order: ['P0', 'P1', 'P2', 'P3'],
-  llm: {
-    provider: 'openai',
-    model: 'gpt-4o',
+// Default provider configs (matches backend LLM_PROVIDERS)
+export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
+  openai: {
+    name: 'OpenAI',
     api_key: '',
     base_url: 'https://api.openai.com/v1',
-    temperature: 0.4,
-    max_tokens: 4096,
-    safety_exempt_enabled: true,
-    xml_tag_isolation_enabled: true,
-    desensitize_mode: false,
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    active_model: 'gpt-4o',
   },
-  engine: {
-    chunk_size: 1000,
-    chunk_size_min: 500,
-    chunk_size_max: 3000,
-    max_workers: 3,
-    max_revisions: 2,
-    context_overlap_chars: 200,
-    context_snap_to_punctuation: true,
-    request_jitter_range: [0.2, 1.5],
-    max_requests_per_second: 2,
-    chunk_timeout_seconds: 60,
-    enable_invalid_modification_break: true,
+  anthropic: {
+    name: 'Anthropic',
+    api_key: '',
+    base_url: 'https://api.anthropic.com/v1',
+    models: ['claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-haiku-latest'],
+    active_model: 'claude-3-5-sonnet-latest',
   },
-  network: {
-    request_timeout: 5,
-    retry_count: 3,
-    circuit_breaker_threshold: 3,
+  deepseek: {
+    name: 'DeepSeek',
+    api_key: '',
+    base_url: 'https://api.deepseek.com/v1',
+    models: ['deepseek-chat', 'deepseek-coder'],
+    active_model: 'deepseek-chat',
   },
-  ui: {
-    log_to_file_enabled: true,
-    log_file_dir: './logs',
-    experimental_realtime_log: false,
-    sync_scroll_default: false,
+  qwen: {
+    name: '通义千问',
+    api_key: '',
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    active_model: 'qwen-turbo',
   },
-  history: {
-    max_snapshots: 20,
+  siliconflow: {
+    name: 'SiliconFlow',
+    api_key: '',
+    base_url: 'https://api.siliconflow.cn/v1',
+    models: ['THUDM/GLM-4-32B-0414', 'Qwen/Qwen2-72B-Instruct', 'deepseek-ai/DeepSeek-V2.5'],
+    active_model: 'THUDM/GLM-4-32B-0414',
+  },
+  custom: {
+    name: '自定义',
+    api_key: '',
+    base_url: '',
+    models: [],
+    active_model: '',
   },
 }
 
@@ -136,7 +146,6 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       await axios.post('/api/config/reset')
-      // Fetch the default config after reset
       const response = await axios.get<ConfigState>('/api/config')
       set({ config: response.data, isLoading: false })
     } catch (err) {
@@ -149,10 +158,8 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const { config, debouncedPatch } = get()
     if (!config) return
 
-    // Optimistically update local state
     set({ config: { ...config, ...patch } })
 
-    // Trigger debounced API call if available
     if (debouncedPatch) {
       debouncedPatch(patch)
     }

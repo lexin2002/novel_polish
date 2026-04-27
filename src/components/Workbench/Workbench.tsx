@@ -128,7 +128,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
   const syncCleanupRef = React.useRef<(() => void) | null>(null)
 
   // Setup sync scroll when editors mount
-  const setupSyncScroll = React.useCallback((originalEditor: unknown, revisedEditor: unknown, diffEditor: monaco.editor.IStandaloneDiffEditor) => {
+  const setupSyncScroll = React.useCallback((originalEditor: unknown, revisedEditor: unknown, _diffEditor: monaco.editor.IStandaloneDiffEditor) => {
     if (syncCleanupRef.current) {
       syncCleanupRef.current()
       syncCleanupRef.current = null

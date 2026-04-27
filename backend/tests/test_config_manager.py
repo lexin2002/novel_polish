@@ -55,12 +55,12 @@ class TestConfigurationManager:
     def test_write_and_read_config_roundtrip(self, config_manager):
         """Test config write and read are consistent"""
         new_config = DEFAULT_CONFIG.copy()
-        new_config["llm"]["model"] = "gpt-4o-mini"
+        new_config["llm"]["providers"]["openai"]["active_model"] = "gpt-4o-mini"
 
         config_manager.write_config(new_config)
         read_config = config_manager.read_config()
 
-        assert read_config["llm"]["model"] == "gpt-4o-mini"
+        assert read_config["llm"]["providers"]["openai"]["active_model"] == "gpt-4o-mini"
 
     def test_write_and_read_rules_roundtrip(self, config_manager):
         """Test rules write and read are consistent"""
@@ -83,22 +83,27 @@ class TestConfigurationManager:
         """Test patching nested config values"""
         patch = {
             "llm": {
-                "model": "claude-3-sonnet",
+                "providers": {
+                    "openai": {
+                        "active_model": "claude-3-sonnet"
+                    }
+                },
                 "temperature": 0.7,
             }
         }
 
         result = config_manager.patch_config(patch)
-        assert result["llm"]["model"] == "claude-3-sonnet"
+        assert result["llm"]["providers"]["openai"]["active_model"] == "claude-3-sonnet"
         assert result["llm"]["temperature"] == 0.7
         # Original keys should be preserved
-        assert result["llm"]["api_key"] == DEFAULT_CONFIG["llm"]["api_key"]
+        assert result["llm"]["providers"]["openai"]["api_key"] == ""
+        assert result["llm"]["active_provider"] == "openai"
 
     def test_patch_config_preserves_other_sections(self, config_manager):
         """Test that patching one section doesn't affect others"""
         original_engine = config_manager.read_config()["engine"].copy()
 
-        patch = {"llm": {"model": "test-model"}}
+        patch = {"llm": {"temperature": 0.2}}
         result = config_manager.patch_config(patch)
 
         # Engine section should be unchanged
@@ -114,7 +119,7 @@ class TestAtomicWrites:
 
         # Write some data
         test_config = DEFAULT_CONFIG.copy()
-        test_config["llm"]["model"] = "pre-write-model"
+        test_config["llm"]["providers"]["openai"]["active_model"] = "pre-write-model"
         manager.write_config(test_config)
 
         # Verify file exists
@@ -275,11 +280,11 @@ class TestConfigAPI:
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            patch_data = {"llm": {"model": "api-test-model"}}
+            patch_data = {"llm": {"temperature": 0.3}}
             response = await client.patch("/api/config", json=patch_data)
             assert response.status_code == 200
             result = response.json()
-            assert result["llm"]["model"] == "api-test-model"
+            assert result["llm"]["temperature"] == 0.3
 
     @pytest.mark.asyncio
     async def test_get_rules_via_api(self):

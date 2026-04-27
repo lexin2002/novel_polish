@@ -5,12 +5,76 @@ import logging
 import os
 import platform
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import filelock
 import json5
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Supported LLM Providers ────────────────────────────────────────────────
+LLM_PROVIDERS: Dict[str, Dict[str, Any]] = {
+    "openai": {
+        "name": "OpenAI",
+        "default_base_url": "https://api.openai.com/v1",
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "default_base_url": "https://api.anthropic.com/v1",
+        "models": ["claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-latest"],
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "default_base_url": "https://api.deepseek.com/v1",
+        "models": ["deepseek-chat", "deepseek-coder"],
+    },
+    "qwen": {
+        "name": "通义千问",
+        "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+    },
+    "siliconflow": {
+        "name": "SiliconFlow",
+        "default_base_url": "https://api.siliconflow.cn/v1",
+        "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
+    },
+    "custom": {
+        "name": "自定义",
+        "default_base_url": "",
+        "models": [],
+    },
+}
+
+
+def _make_provider_config(provider_id: str) -> Dict[str, Any]:
+    """Build a default provider config entry."""
+    info = LLM_PROVIDERS.get(provider_id, LLM_PROVIDERS["custom"])
+    return {
+        "name": info["name"],
+        "api_key": "",
+        "base_url": info["default_base_url"],
+        "models": info["models"],
+        "active_model": info["models"][0] if info["models"] else "",
+    }
+
+
+def _build_default_llm_config() -> Dict[str, Any]:
+    """Build the default LLM config section with all providers."""
+    providers: Dict[str, Any] = {}
+    for provider_id in LLM_PROVIDERS:
+        providers[provider_id] = _make_provider_config(provider_id)
+
+    return {
+        "active_provider": "openai",
+        "temperature": 0.4,
+        "max_tokens": 4096,
+        "safety_exempt_enabled": True,
+        "xml_tag_isolation_enabled": True,
+        "desensitize_mode": False,
+        "providers": providers,
+    }
 
 
 def _get_config_dir() -> Path:
@@ -37,17 +101,7 @@ def _get_config_dir() -> Path:
 # Default configuration structure
 DEFAULT_CONFIG: Dict[str, Any] = {
     "priority_order": ["P0", "P1", "P2", "P3"],
-    "llm": {
-        "provider": "openai",
-        "model": "gpt-4o",
-        "api_key": "",
-        "base_url": "https://api.openai.com/v1",
-        "temperature": 0.4,
-        "max_tokens": 4096,
-        "safety_exempt_enabled": True,
-        "xml_tag_isolation_enabled": True,
-        "desensitize_mode": False,
-    },
+    "llm": _build_default_llm_config(),
     "engine": {
         "chunk_size": 1000,
         "chunk_size_min": 500,
@@ -199,14 +253,56 @@ class ConfigurationManager:
                 return DEFAULT_CONFIG.copy()
 
     def write_config(self, data: Dict[str, Any]) -> None:
-        """Write config.jsonc with validation"""
+        """Write config.jsonc with validation + migration"""
         # Validate required keys
         for key in DEFAULT_CONFIG:
             if key not in data:
                 logger.warning(f"Missing key '{key}' in config, using default")
                 data[key] = DEFAULT_CONFIG[key]
 
+        # Migrate old flat llm config to new provider-centric format
+        data["llm"] = self._migrate_llm_config(data.get("llm", {}))
+
         self._atomic_write_config(data)
+
+    def _migrate_llm_config(self, llm_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate old flat llm config to new provider-centric format."""
+        default = _build_default_llm_config()
+
+        # If already migrated, return as-is
+        if "providers" in llm_config:
+            # Ensure all provider slots exist (newly added providers)
+            for provider_id, info in LLM_PROVIDERS.items():
+                if provider_id not in llm_config["providers"]:
+                    llm_config["providers"][provider_id] = _make_provider_config(provider_id)
+            return llm_config
+
+        # Migrate old format: flatten llm config → providers
+        old_provider = llm_config.get("provider", "openai")
+        providers: Dict[str, Any] = {}
+        for provider_id in LLM_PROVIDERS:
+            providers[provider_id] = _make_provider_config(provider_id)
+
+        # Copy old values into the old provider slot
+        if old_provider in providers:
+            providers[old_provider]["api_key"] = llm_config.get("api_key", "")
+            providers[old_provider]["base_url"] = llm_config.get("base_url", "")
+            providers[old_provider]["active_model"] = llm_config.get("model", providers[old_provider]["active_model"])
+            # Also set the models list to include the old model if not in default list
+            if llm_config.get("model") and llm_config.get("model") not in providers[old_provider]["models"]:
+                providers[old_provider]["models"] = [llm_config.get("model")] + providers[old_provider]["models"]
+
+        result = default.copy()
+        result["providers"] = providers
+        result["active_provider"] = old_provider
+        result["temperature"] = llm_config.get("temperature", 0.4)
+        result["max_tokens"] = llm_config.get("max_tokens", 4096)
+        result["safety_exempt_enabled"] = llm_config.get("safety_exempt_enabled", True)
+        result["xml_tag_isolation_enabled"] = llm_config.get("xml_tag_isolation_enabled", True)
+        result["desensitize_mode"] = llm_config.get("desensitize_mode", False)
+
+        logger.info(f"Migrated llm config from old format, active_provider={old_provider}")
+        return result
 
     def patch_config(self, patch: Dict[str, Any]) -> Dict[str, Any]:
         """Partially update config"""

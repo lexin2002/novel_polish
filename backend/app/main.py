@@ -18,7 +18,6 @@ from app.core.config import (
 )
 from app.core.config_manager import get_config_manager
 from app.core.history_db import get_history_db
-from app.core.siliconflow_client import create_siliconflow_client
 from app.engine.polishing_service import create_polishing_service
 
 # Configure root logger
@@ -52,13 +51,16 @@ async def lifespan(app: FastAPI):
 
         # Initialize SiliconFlow client and polishing service if API key is configured
         llm_config = config.get("llm", {})
-        api_key = llm_config.get("api_key", "")
+        providers = llm_config.get("providers", {})
+        siliconflow_cfg = providers.get("siliconflow", {})
+        api_key = siliconflow_cfg.get("api_key", "")
         if api_key:
             logger.info("SiliconFlow API key configured, initializing polishing service")
+            from app.core.siliconflow_client import create_siliconflow_client
             client = await create_siliconflow_client(
                 api_key=api_key,
-                base_url=llm_config.get("base_url"),
-                model=llm_config.get("model"),
+                base_url=siliconflow_cfg.get("base_url"),
+                model=siliconflow_cfg.get("active_model"),
             )
             service = await create_polishing_service(client)
             set_polishing_service(service)

@@ -76,19 +76,55 @@ const SwitchItem: React.FC<SwitchItemProps> = ({ label, checked, onChange }) => 
   </ConfigItem>
 )
 
-interface SelectItemProps {
-  label: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (value: string) => void
-}
+// Provider selector for LLM config - shows active provider name with dropdown
+const ProviderSelector: React.FC<{
+  activeProvider: string
+  providers: Record<string, { name: string }>
+  onChange: (providerId: string) => void
+}> = ({ activeProvider, providers, onChange }) => (
+  <ConfigItem label="当前提供商">
+    <Select.Root value={activeProvider} onValueChange={onChange}>
+      <Select.Trigger
+        className="flex items-center justify-between w-full px-3 py-2.5 text-sm bg-primary/5 border border-primary/20 rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
+        aria-label="选择提供商"
+      >
+        <Select.Value>
+          <span className="font-medium">{providers[activeProvider]?.name || activeProvider}</span>
+        </Select.Value>
+        <Select.Icon>
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg z-50">
+          <Select.Viewport className="p-1">
+            {Object.entries(providers).map(([id, p]) => (
+              <Select.Item
+                key={id}
+                value={id}
+                className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
+              >
+                <Select.ItemText>{p.name}</Select.ItemText>
+              </Select.Item>
+            ))}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  </ConfigItem>
+)
 
-const SelectItem: React.FC<SelectItemProps> = ({ label, value, options, onChange }) => (
-  <ConfigItem label={label}>
+// Model selector - shows models from active provider
+const ModelSelector: React.FC<{
+  value: string
+  models: string[]
+  onChange: (model: string) => void
+}> = ({ value, models, onChange }) => (
+  <ConfigItem label="模型">
     <Select.Root value={value} onValueChange={onChange}>
       <Select.Trigger
         className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-border rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
-        aria-label={label}
+        aria-label="选择模型"
       >
         <Select.Value />
         <Select.Icon>
@@ -96,17 +132,23 @@ const SelectItem: React.FC<SelectItemProps> = ({ label, value, options, onChange
         </Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg">
+        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg z-50">
           <Select.Viewport className="p-1">
-            {options.map((opt) => (
-              <Select.Item
-                key={opt.value}
-                value={opt.value}
-                className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
-              >
-                <Select.ItemText>{opt.label}</Select.ItemText>
+            {models.length > 0 ? (
+              models.map((model) => (
+                <Select.Item
+                  key={model}
+                  value={model}
+                  className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
+                >
+                  <Select.ItemText>{model}</Select.ItemText>
+                </Select.Item>
+              ))
+            ) : (
+              <Select.Item value="custom" className="relative flex items-center px-8 py-2 text-sm text-muted-foreground cursor-pointer">
+                <Select.ItemText>无可用模型</Select.ItemText>
               </Select.Item>
-            ))}
+            )}
           </Select.Viewport>
         </Select.Content>
       </Select.Portal>
@@ -156,7 +198,7 @@ const TextItem: React.FC<TextItemProps> = ({ label, value, placeholder, type = '
 )
 
 export const Sidebar: React.FC = () => {
-  const { config, isLoading, isSyncing, error, updateConfig, resetConfig, fetchConfig } = useConfigStore()
+  const { config, isLoading, isSyncing, error, resetConfig, fetchConfig } = useConfigStore()
 
   React.useEffect(() => {
     fetchConfig()
@@ -183,7 +225,7 @@ export const Sidebar: React.FC = () => {
               系统设置
             </h2>
             <button
-              onClick={() => fetchConfig()}
+              onClick={fetchConfig}
               className="flex items-center gap-1 px-2 py-1 text-sm text-primary hover:bg-secondary rounded transition-colors"
               title="刷新"
             >
@@ -195,7 +237,7 @@ export const Sidebar: React.FC = () => {
           <p className="text-destructive text-sm">加载配置失败</p>
           <p className="text-muted-foreground text-xs mt-1">错误: {error}</p>
           <button
-            onClick={() => fetchConfig()}
+            onClick={fetchConfig}
             className="mt-3 px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary/90"
           >
             重试
@@ -205,6 +247,8 @@ export const Sidebar: React.FC = () => {
     )
   }
 
+  if (!config) return null
+
   const update = (path: string[], value: unknown) => {
     const patch = { ...config }
     let current: Record<string, unknown> = patch as Record<string, unknown>
@@ -212,7 +256,7 @@ export const Sidebar: React.FC = () => {
       current = current[path[i]] as Record<string, unknown>
     }
     current[path[path.length - 1]] = value
-    updateConfig(patch as Partial<ConfigState>)
+    useConfigStore.getState().updateConfig(patch as Partial<ConfigState>)
   }
 
   return (
@@ -223,16 +267,26 @@ export const Sidebar: React.FC = () => {
             <Settings className="w-5 h-5" />
             系统设置
           </h2>
-          <button
-            onClick={resetConfig}
-            className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-            title="重置为默认"
-          >
-            <RotateCcw className="w-4 h-4" />
-            重置
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={resetConfig}
+              className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              title="重置为默认"
+            >
+              <RotateCcw className="w-4 h-4" />
+              重置
+            </button>
+            <button
+              onClick={fetchConfig}
+              className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              title="刷新"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
         {isSyncing && <span className="text-xs text-primary">同步中...</span>}
+        {error && <span className="text-xs text-destructive">同步失败</span>}
       </div>
 
       <Accordion.Root className="w-full" type="multiple" defaultValue={['llm', 'engine']}>
@@ -243,40 +297,52 @@ export const Sidebar: React.FC = () => {
             <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
           </Accordion.Trigger>
           <Accordion.Content className="px-4 pb-4">
-            <SelectItem
-              label="提供商"
-              value={config.llm.provider}
-              options={[
-                { value: 'openai', label: 'OpenAI' },
-                { value: 'deepseek', label: 'DeepSeek' },
-                { value: 'qwen', label: 'Qwen' },
-                { value: 'anthropic', label: 'Anthropic' },
-              ]}
-              onChange={(v) => update(['llm', 'provider'], v)}
+            {/* Provider Selector - the main control */}
+            <ProviderSelector
+              activeProvider={config.llm.active_provider}
+              providers={config.llm.providers}
+              onChange={(providerId) => update(['llm', 'active_provider'], providerId)}
             />
-            <TextItem
-              label="API Key"
-              value={config.llm.api_key}
-              placeholder="sk-..."
-              type="password"
-              onChange={(v) => update(['llm', 'api_key'], v)}
-            />
-            <TextItem
-              label="Base URL"
-              value={config.llm.base_url}
-              placeholder="https://api.openai.com/v1"
-              onChange={(v) => update(['llm', 'base_url'], v)}
-            />
-            <SelectItem
-              label="模型"
-              value={config.llm.model}
-              options={[
-                { value: 'gpt-4o', label: 'GPT-4o' },
-                { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-                { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-              ]}
-              onChange={(v) => update(['llm', 'model'], v)}
-            />
+
+            {/* Divider */}
+            <div className="border-t border-border my-3" />
+
+            {/* Active Provider's Configuration */}
+            {(() => {
+              const active = config.llm.providers[config.llm.active_provider]
+              if (!active) return null
+              return (
+                <>
+                  <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                    {active.name} 配置
+                  </div>
+                  <TextItem
+                    label="API Key"
+                    value={active.api_key}
+                    placeholder="sk-..."
+                    type="password"
+                    onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'api_key'], v)}
+                  />
+                  <TextItem
+                    label="Base URL"
+                    value={active.base_url}
+                    placeholder="https://..."
+                    onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'base_url'], v)}
+                  />
+                  <ModelSelector
+                    value={active.active_model}
+                    models={active.models}
+                    onChange={(model) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], model)}
+                  />
+                  <div className="border-t border-border my-3" />
+                </>
+              )
+            })()}
+
+            {/* Shared LLM Parameters */}
+            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+              通用参数
+            </div>
             <SliderItem
               label="Temperature"
               value={config.llm.temperature}
