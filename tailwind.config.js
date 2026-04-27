@@ -7,30 +7,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: '#f9f9f9',
-        foreground: '#1a1a1a',
-        card: '#f9f9f9',
-        'card-foreground': '#1a1a1a',
-        border: '#e0e0e0',
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        card: 'var(--card)',
+        'card-foreground': 'var(--card-foreground)',
+        border: 'var(--border)',
         primary: {
-          DEFAULT: '#2a6f9c',
-          foreground: '#ffffff',
+          DEFAULT: 'var(--primary)',
+          foreground: 'var(--primary-foreground)',
         },
         secondary: {
-          DEFAULT: '#f0f0f0',
-          foreground: '#333333',
+          DEFAULT: 'var(--secondary)',
+          foreground: 'var(--secondary-foreground)',
         },
         accent: {
-          DEFAULT: '#ff8c00',
-          foreground: '#ffffff',
+          DEFAULT: 'var(--accent)',
+          foreground: 'var(--accent-foreground)',
         },
         muted: {
-          DEFAULT: '#f0f0f0',
-          foreground: '#666666',
+          DEFAULT: 'var(--muted)',
+          foreground: 'var(--muted-foreground)',
         },
         destructive: {
-          DEFAULT: '#dc3545',
-          foreground: '#ffffff',
+          DEFAULT: 'var(--destructive)',
+          foreground: 'var(--destructive-foreground)',
         },
       },
       fontFamily: {
