@@ -138,6 +138,28 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
 }
 
+/** Deep merge updates into config, preserving existing fields at all levels */
+function deepMerge(base: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...base }
+  for (const key of Object.keys(updates)) {
+    const val = updates[key]
+    const existing = result[key]
+    if (
+      val !== null &&
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
+      existing !== null &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing)
+    ) {
+      result[key] = deepMerge(existing as Record<string, unknown>, val as Record<string, unknown>)
+    } else if (val !== undefined) {
+      result[key] = val
+    }
+  }
+  return result
+}
+
 export const useConfigStore = create<ConfigStore>((set, get) => ({
   config: null,
   isLoading: true,
@@ -195,14 +217,18 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     }
   },
 
-  updateConfig: (newConfig: Partial<ConfigState>) => {
-    const { debouncedPatch } = get()
-    // newConfig is already a complete deep-cloned config from Sidebar's update function
-    // Just set it directly without shallow merging
-    set({ config: newConfig as ConfigState })
+  updateConfig: (patch: Partial<ConfigState>) => {
+    const { config, debouncedPatch } = get()
+    if (!config) return
+    // Deep merge to preserve fields at all levels
+    const merged = deepMerge(
+      config as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>,
+    )
+    set({ config: merged as unknown as ConfigState })
 
     if (debouncedPatch) {
-      debouncedPatch(newConfig)
+      debouncedPatch(patch)
     }
   },
 }))
