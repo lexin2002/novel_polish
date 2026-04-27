@@ -161,7 +161,8 @@ export const Sidebar: React.FC = () => {
 
   React.useEffect(() => {
     fetchConfig()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // fetchConfig is stable from store
 
   const handleTestConnection = async () => {
     setTestState({ testing: true, result: null })
@@ -285,11 +286,10 @@ export const Sidebar: React.FC = () => {
                   <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
                     {active.name} 配置
                   </div>
-                  {/* API Type - Auto-detected from Base URL (read-only) */}
+                  {/* API Type */}
                   <ConfigItem label="API 类型">
                     <div className="px-3 py-2 text-sm bg-muted/30 border border-border rounded-md text-muted-foreground">
-                      {getApiTypeName(detectApiType(active.base_url))}
-                      <span className="text-xs text-muted-foreground/60 ml-2">(根据 Base URL 自动检测)</span>
+                      {getApiTypeName(active.api || detectApiType(active.base_url))}
                     </div>
                   </ConfigItem>
                   <TextItem
@@ -302,8 +302,18 @@ export const Sidebar: React.FC = () => {
                   <TextItem
                     label="Base URL"
                     value={active.base_url}
-                    placeholder="https://..."
-                    onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'base_url'], v)}
+                    placeholder={active.api === 'anthropic' ? 'https://api.minimaxi.com/anthropic/v1' : 'https://api.openai.com/v1'}
+                    onChange={(v) => {
+                      // Strip trailing /messages or /chat/completions since backend appends them
+                      const normalized = v
+                        .replace(/\/messages\/?$/, '')
+                        .replace(/\/chat\/completions\/?$/, '')
+                        .replace(/\/$/, '')
+                      // Auto-detect API type from base_url and update it
+                      const detectedApi = detectApiType(normalized)
+                      update(['llm', 'providers', config.llm.active_provider, 'base_url'], normalized)
+                      update(['llm', 'providers', config.llm.active_provider, 'api'], detectedApi)
+                    }}
                   />
                   {/* Custom provider name editing */}
                   {config.llm.active_provider === 'custom' && (

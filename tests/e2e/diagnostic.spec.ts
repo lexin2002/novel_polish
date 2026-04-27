@@ -1,13 +1,13 @@
 /**
  * Diagnostic test: replaces manual F12 with automated console + network capture
  */
-import { test, expect, Page, ConsoleMessage, Request } from '@playwright/test'
+import { test, ConsoleMessage, Request } from '@playwright/test'
 import * as fs from 'fs'
 
 test.describe('Automated Diagnostic - Config Loading Error', () => {
-  let consoleErrors: string[] = []
-  let consoleWarnings: string[] = []
-  let networkCapture: Array<{ method: string; url: string; status: number | null; body: string | null; failure: string | null }> = []
+  const consoleErrors: string[] = []
+  const consoleWarnings: string[] = []
+  const networkCapture: Array<{ method: string; url: string; status: number | null; body: string | null; failure: string | null }> = []
 
   test('should capture all evidence for "配置加载失败" error', async ({ page }) => {
     console.log('='.repeat(60))

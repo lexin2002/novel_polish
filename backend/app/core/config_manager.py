@@ -183,6 +183,11 @@ DEFAULT_RULES: Dict[str, Any] = {
 }
 
 
+class FileLockError(Exception):
+    """Raised when config file lock cannot be acquired"""
+    pass
+
+
 class ConfigurationManager:
     """Manage atomic read/write of config.jsonc and rules.json with FileLock"""
 
@@ -197,6 +202,7 @@ class ConfigurationManager:
         self.rules_path = self.data_dir / "rules.json"
         self.config_lock_path = self.data_dir / "config.jsonc.lock"
         self.rules_lock_path = self.data_dir / "rules.json.lock"
+        self._is_read_only = False  # Set to True when config can't be reliably read
 
         # Initialize files if they don't exist
         self._ensure_files()
@@ -246,8 +252,10 @@ class ConfigurationManager:
         """Read config.jsonc with fallback to default on error.
         Auto-fixes corrupted provider data on read and persists fixes.
         """
-        with filelock.FileLock(self.config_lock_path, timeout=10):
-            try:
+        try:
+            # Use a shorter timeout and handle timeout gracefully
+            lock = filelock.FileLock(self.config_lock_path, timeout=2)
+            with lock:
                 if not self.config_path.exists():
                     return DEFAULT_CONFIG.copy()
 
@@ -261,12 +269,28 @@ class ConfigurationManager:
                     self._atomic_write_config(data)
                     logger.info("Auto-fixed corrupted provider data in config")
 
+                self._is_read_only = False
                 logger.debug("Config read successfully")
                 return data
-            except Exception as e:
-                msg = f"Config read failed: {e}, falling back to default"
-                logger.warning(msg)
-                return DEFAULT_CONFIG.copy()
+        except filelock.Timeout:
+            logger.warning("Config read timed out, retrying without lock...")
+            # Try reading directly without lock
+            try:
+                if self.config_path.exists():
+                    with open(self.config_path, "r", encoding="utf-8") as f:
+                        data = json5.load(f)
+                    self._is_read_only = False
+                    logger.info("Config read successfully (without lock)")
+                    return data
+            except Exception:
+                pass
+            logger.warning("Config read failed, using defaults")
+            self._is_read_only = True
+            return DEFAULT_CONFIG.copy()
+        except Exception as e:
+            logger.warning(f"Config read failed: {e}")
+            self._is_read_only = True
+            return DEFAULT_CONFIG.copy()
 
     def write_config(self, data: Dict[str, Any]) -> None:
         """Write config.jsonc with validation + migration"""
@@ -301,8 +325,9 @@ class ConfigurationManager:
                 if provider_id not in LLM_PROVIDERS:
                     continue
                 info = LLM_PROVIDERS[provider_id]
-                # Fix missing or wrong api field
-                if provider_data.get("api") != info["api"]:
+                # Fix missing or wrong api field for predefined providers
+                # Skip "custom" provider - its api type is user-defined
+                if provider_id != "custom" and provider_data.get("api") != info["api"]:
                     provider_data["api"] = info["api"]
                     was_modified = True
                 # Only fix empty base_url (allow user to set custom base_url)

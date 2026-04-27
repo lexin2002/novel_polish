@@ -43,14 +43,21 @@ async def get_config() -> Dict[str, Any]:
 @router.patch("/api/config")
 async def patch_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     """Partially update configuration (supports nested keys)"""
+    from app.core.config_manager import FileLockError
     manager = get_config_manager()
-    return manager.patch_config(patch)
+    try:
+        return manager.patch_config(patch)
+    except FileLockError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.post("/api/config")
 async def post_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Reset configuration to provided values (full replacement)"""
+    from app.core.config_manager import FileLockError
     manager = get_config_manager()
+    if manager._is_read_only:
+        raise HTTPException(status_code=409, detail="Config is read-only due to lock timeout. Please retry later.")
     manager.write_config(config)
     return {"status": "ok", "message": "Config reset successfully"}
 
@@ -88,7 +95,7 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
     api_key = provider_data.get("api_key", "").strip()
     base_url = provider_data.get("base_url", "").strip()
     active_model = provider_data.get("active_model", "").strip()
-    # api_type is read from config for display purposes, but auto-detected by LLMClient from base_url
+    api_type = provider_data.get("api", "openai").strip()  # Read api type from config
 
     if not api_key:
         return {"ok": False, "error": "API Key 不能为空"}
@@ -103,6 +110,7 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
             api_key=api_key,
             base_url=base_url,
             model=active_model,
+            api_type=api_type,
             timeout=30.0,
         )
         result = await client.test_connection()

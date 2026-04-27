@@ -1,9 +1,9 @@
-"""Tests for SiliconFlow client and PolishingService"""
+"""Tests for PolishingService"""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.core.siliconflow_client import SiliconFlowClient, create_siliconflow_client
+from app.core.llm_client import LLMClient, LLMResponse
 from app.engine.polishing_service import (
     PolishingService,
     PolishRequest,
@@ -13,20 +13,25 @@ from app.engine.polishing_service import (
 )
 
 
-class TestSiliconFlowClient:
-    """Test suite for SiliconFlowClient"""
+class TestLLMClientSiliconFlow:
+    """Test suite for LLMClient using SiliconFlow provider"""
 
     def test_initialization(self):
         """Client initializes with correct defaults"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
         assert client.api_key == "test-key"
-        assert client.base_url == "https://api.siliconflow.cn"
+        assert client.base_url == "https://api.siliconflow.cn/v1"
         assert client.model == "THUDM/GLM-4-32B-0414"
-        assert client.timeout == 120.0
 
     def test_custom_initialization(self):
         """Client accepts custom parameters"""
-        client = SiliconFlowClient(
+        client = LLMClient(
+            provider="custom",
             api_key="custom-key",
             base_url="https://custom.api.com",
             model="custom/model",
@@ -35,11 +40,15 @@ class TestSiliconFlowClient:
         assert client.api_key == "custom-key"
         assert client.base_url == "https://custom.api.com"
         assert client.model == "custom/model"
-        assert client.timeout == 60.0
 
     def test_client_property_creates_httpx_client(self):
         """Client property creates HTTP client on first access"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
         http_client = client.client
         assert http_client is not None
         assert client.base_url in str(http_client.base_url)
@@ -47,9 +56,13 @@ class TestSiliconFlowClient:
     @pytest.mark.asyncio
     async def test_chatcompletion_success(self):
         """chatcompletion returns response on success"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
 
-        # Mock the HTTP client
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "choices": [
@@ -69,13 +82,18 @@ class TestSiliconFlowClient:
 
         result = await client.chatcompletion(messages)
 
-        assert result == "Polished text result"
+        assert result.content == "Polished text result"
         client._client.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_chatcompletion_with_temperature(self):
         """chatcompletion accepts temperature parameter"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
 
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -94,7 +112,6 @@ class TestSiliconFlowClient:
         )
 
         call_args = client._client.post.call_args
-        # call_args[0] is positional args, call_args[1] is keyword args
         payload = call_args.kwargs.get("json") or call_args[1].get("json")
         assert payload["temperature"] == 0.5
         assert payload["max_tokens"] == 2048
@@ -102,7 +119,12 @@ class TestSiliconFlowClient:
     @pytest.mark.asyncio
     async def test_chatcompletion_no_choices_raises(self):
         """chatcompletion raises on empty choices"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": []}
@@ -111,13 +133,18 @@ class TestSiliconFlowClient:
         client._client = MagicMock()
         client._client.post = AsyncMock(return_value=mock_response)
 
-        with pytest.raises(ValueError, match="No choices"):
+        with pytest.raises(Exception, match="choices"):
             await client.chatcompletion([{"role": "user", "content": "test"}])
 
     @pytest.mark.asyncio
     async def test_close(self):
         """close() cleans up HTTP client"""
-        client = SiliconFlowClient(api_key="test-key")
+        client = LLMClient(
+            provider="siliconflow",
+            api_key="test-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
         mock_client = MagicMock()
         mock_client.aclose = AsyncMock()
         client._client = mock_client
@@ -128,22 +155,30 @@ class TestSiliconFlowClient:
         mock_client.aclose.assert_called_once()
 
 
-class TestCreateSiliconFlowClient:
-    """Test suite for create_siliconflow_client factory"""
+class TestCreateLLMClient:
+    """Test suite for create_llm_client factory"""
 
     @pytest.mark.asyncio
     async def test_create_with_defaults(self):
-        """Factory creates client with default values"""
-        client = await create_siliconflow_client(api_key="my-key")
+        """Factory creates client with required params"""
+        from app.core.llm_client import create_llm_client
+        client = await create_llm_client(
+            provider="siliconflow",
+            api_key="my-key",
+            base_url="https://api.siliconflow.cn/v1",
+            model="THUDM/GLM-4-32B-0414",
+        )
         assert client.api_key == "my-key"
-        assert client.base_url == "https://api.siliconflow.cn"
+        assert client.provider == "siliconflow"
         assert client.model == "THUDM/GLM-4-32B-0414"
 
     @pytest.mark.asyncio
     async def test_create_with_custom_values(self):
         """Factory accepts custom base_url and model"""
-        client = await create_siliconflow_client(
+        from app.core.llm_client import create_llm_client
+        client = await create_llm_client(
             api_key="my-key",
+            provider="deepseek",
             base_url="https://custom.com",
             model="custom/model",
         )
@@ -219,7 +254,7 @@ Some more analysis here."""
         """polish_text handles single chunk (no slicing needed)"""
         mock_client = MagicMock()
         mock_client.chatcompletion = AsyncMock(
-            return_value="Polished version of the text."
+            return_value=LLMResponse(content="Polished version of the text.", input_tokens=10, output_tokens=20)
         )
 
         config = {
@@ -243,7 +278,7 @@ Some more analysis here."""
         """polish_text processes multiple chunks when text exceeds chunk size"""
         mock_client = MagicMock()
         mock_client.chatcompletion = AsyncMock(
-            return_value="Polished chunk content."
+            return_value=LLMResponse(content="Polished chunk content.", input_tokens=10, output_tokens=20)
         )
 
         # Use very small chunk size to force multiple chunks

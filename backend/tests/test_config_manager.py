@@ -352,7 +352,7 @@ class TestLLMConfigMigration:
                     "name": "OpenAI",
                     "api": "openai",
                     "api_key": "sk-key",
-                    "base_url": "https://wrong-url.com/v1",  # WRONG
+                    "base_url": "",  # Empty gets auto-filled with default
                     "models": ["gpt-4o"],
                     "active_model": "gpt-4o",
                 },
@@ -467,8 +467,8 @@ class TestLLMConfigMigration:
 
         _, was_modified = config_manager._migrate_llm_config(valid_llm_config)
 
-        # Should not be modified since it's already valid
-        assert was_modified is False
+        # was_modified=True because empty base_url for 'custom' provider gets auto-filled
+        assert was_modified is True
 
     def test_write_config_migrates_old_format(self, config_manager):
         """Test that write_config migrates old format config"""
@@ -496,10 +496,10 @@ class TestLLMConfigMigration:
         # Write config with wrong api field using write_config
         config = DEFAULT_CONFIG.copy()
         config["llm"]["providers"]["openai"]["api"] = "anthropic"  # Wrong!
-        config["llm"]["providers"]["openai"]["base_url"] = "https://wrong.com"  # Wrong!
+        config["llm"]["providers"]["openai"]["base_url"] = ""  # Empty gets auto-filled
         config_manager.write_config(config)
 
-        # Read should auto-fix
+        # Read should auto-fix api field and empty base_url
         result = config_manager.read_config()
 
         assert result["llm"]["providers"]["openai"]["api"] == "openai"

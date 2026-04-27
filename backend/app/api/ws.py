@@ -21,12 +21,18 @@ class WebSocketLogHandler(logging.Handler):
         try:
             msg = self.format(record)
             for connection in list(active_connections):
-                try:
-                    # Schedule async send without blocking
-                    asyncio.create_task(connection.send_text(msg))
-                except Exception:
-                    # Connection may be closed, remove it
-                    active_connections.discard(connection)
+                # Capture connection in local scope to avoid closure over loop variable
+                conn = connection
+
+                async def send_with_error_handling(c: WebSocket = conn):
+                    try:
+                        await c.send_text(msg)
+                    except Exception as e:
+                        # Log the error and remove closed connection
+                        logger.warning(f"WebSocket send failed: {e}")
+                        active_connections.discard(c)
+
+                asyncio.create_task(send_with_error_handling())
         except Exception:
             self.handleError(record)
 

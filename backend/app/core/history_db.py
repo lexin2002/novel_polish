@@ -85,13 +85,18 @@ class HistoryDatabase:
 
         # Copy log file if provided
         log_file_path: Optional[str] = None
+        MAX_LOG_SIZE = 50 * 1024 * 1024  # 50MB limit
         if source_log_path and os.path.exists(source_log_path):
             try:
-                log_filename = f"snapshot_{timestamp.replace(':', '-')}.log"
-                dest_path = self.logs_dir / log_filename
-                shutil.copy2(source_log_path, dest_path)
-                log_file_path = str(dest_path)
-                logger.debug(f"Log file copied to {log_file_path}")
+                log_size = os.path.getsize(source_log_path)
+                if log_size > MAX_LOG_SIZE:
+                    logger.warning(f"Log file too large ({log_size / 1024 / 1024:.1f}MB), skipping copy")
+                else:
+                    log_filename = f"snapshot_{timestamp.replace(':', '-')}.log"
+                    dest_path = self.logs_dir / log_filename
+                    shutil.copy2(source_log_path, dest_path)
+                    log_file_path = str(dest_path)
+                    logger.debug(f"Log file copied to {log_file_path}")
             except Exception as e:
                 logger.warning(f"Failed to copy log file: {e}")
                 log_file_path = None

@@ -46,8 +46,11 @@ async def test_websocket_handler_emit():
             exc_info=None,
         )
 
-        # Emit should broadcast to the mock WebSocket
+        # Emit should broadcast to the mock WebSocket (fire-and-forget, schedule task)
         handler.emit(record)
+
+        # Process pending asyncio tasks so send_text actually runs
+        await asyncio.sleep(0)
 
         # Verify send_text was called
         assert mock_ws.send_text.called
@@ -82,6 +85,9 @@ async def test_websocket_handler_emit_multiple_clients():
         )
 
         handler.emit(record)
+
+        # Process pending asyncio tasks so send_text actually runs
+        await asyncio.sleep(0)
 
         # Both clients should receive the message
         assert mock_ws1.send_text.called

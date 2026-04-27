@@ -80,8 +80,11 @@ class AsyncTokenBucket:
             needed = tokens - self.tokens
             wait_time = needed / self.fill_rate
 
-            # Wait for tokens
-            logger.debug(f"Token bucket waiting {wait_time:.2f}s for tokens")
+            # Log at INFO if significant delay (> 3 seconds)
+            if wait_time > 3:
+                logger.info(f"Rate limiter: waiting {wait_time:.2f}s for tokens")
+            else:
+                logger.debug(f"Token bucket waiting {wait_time:.2f}s for tokens")
             await asyncio.sleep(wait_time)
 
             # Refill and consume

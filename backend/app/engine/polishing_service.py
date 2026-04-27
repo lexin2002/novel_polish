@@ -39,6 +39,8 @@ class ChunkResult:
     polished_content: str
     modifications: List[Dict[str, str]]
     tokens_used: int
+    failed: bool = False  # Track if chunk processing failed
+    error_message: str = ""  # Error message if failed
 
 
 class PolishingService:
@@ -46,14 +48,14 @@ class PolishingService:
 
     def __init__(
         self,
-        llm_client,  # SiliconFlowClient or similar
+        llm_client,  # LLMClient
         config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize polishing service.
 
         Args:
-            llm_client: LLM API client (SiliconFlowClient)
+            llm_client: LLM API client (LLMClient)
             config: Optional config dict (reads from config manager if not provided)
         """
         self.llm_client = llm_client
@@ -64,6 +66,9 @@ class PolishingService:
         self.config = config
         self.llm_config = config.get("llm", {})
         self.engine_config = config.get("engine", {})
+
+        # Get chunk timeout from config (default 60s)
+        self.chunk_timeout = self.engine_config.get("chunk_timeout_seconds", 60)
 
         # Create rate limiter
         rate_limit = self.engine_config.get("max_requests_per_second", 2)
@@ -110,15 +115,22 @@ class PolishingService:
         polished_parts = []
         all_modifications = []
         total_tokens = 0
+        failed_chunks = []
 
         for result in chunk_results:
             polished_parts.append(result.polished_content)
             all_modifications.extend(result.modifications)
             total_tokens += result.tokens_used
+            if result.failed:
+                failed_chunks.append(result.chunk_index)
 
         polished_text = self.text_slicer.reassemble_chunks(chunks, [r.polished_content for r in chunk_results])
 
-        logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens")
+        # Warn if any chunks failed
+        if failed_chunks:
+            logger.warning(f"Chunks failed: {failed_chunks}")
+
+        logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens, failed: {len(failed_chunks)}")
 
         return PolishResult(
             original_text=request.text,
@@ -150,7 +162,22 @@ class PolishingService:
                 # Wait for rate limiter
                 await self.rate_limiter.consume()
 
-                return await self._process_single_chunk(chunk, index, request)
+                # Process with timeout
+                try:
+                    return await asyncio.wait_for(
+                        self._process_single_chunk(chunk, index, request),
+                        timeout=self.chunk_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"Chunk {index} processing timed out after {self.chunk_timeout}s")
+                    return ChunkResult(
+                        chunk_index=index,
+                        polished_content=chunk.content,
+                        modifications=[],
+                        tokens_used=0,
+                        failed=True,
+                        error_message=f"Timeout after {self.chunk_timeout}s",
+                    )
 
         # Process all chunks concurrently (bounded by semaphore)
         tasks = [process_chunk(chunk, i) for i, chunk in enumerate(chunks)]
@@ -188,7 +215,7 @@ class PolishingService:
 
         # Send to LLM
         try:
-            response = await self.llm_client.chatcompletion(
+            llm_response = await self.llm_client.chatcompletion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -198,12 +225,12 @@ class PolishingService:
             )
 
             # Extract polished text from response
-            polished_content = self._extract_polished_text(response)
+            polished_content = self._extract_polished_text(llm_response.content)
 
-            # Count tokens (rough estimate based on content length)
-            tokens_used = len(content) // 4  # Rough approximation
+            # Use actual token count from LLM response
+            tokens_used = llm_response.total_tokens
 
-            logger.debug(f"Chunk {index} processed, ~{tokens_used} tokens")
+            logger.debug(f"Chunk {index} processed, {tokens_used} tokens")
 
             return ChunkResult(
                 chunk_index=index,
@@ -214,12 +241,14 @@ class PolishingService:
 
         except Exception as e:
             logger.error(f"Chunk {index} processing failed: {e}")
-            # Return original content on failure
+            # Return original content with failure marker
             return ChunkResult(
                 chunk_index=index,
                 polished_content=content,
                 modifications=[],
                 tokens_used=0,
+                failed=True,
+                error_message=str(e),
             )
 
     def _extract_polished_text(self, llm_response: str) -> str:
@@ -249,7 +278,7 @@ async def create_polishing_service(llm_client) -> PolishingService:
     Factory function to create PolishingService.
 
     Args:
-        llm_client: SiliconFlowClient or similar
+        llm_client: LLMClient
 
     Returns:
         Configured PolishingService instance

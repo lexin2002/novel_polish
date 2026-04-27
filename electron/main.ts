@@ -18,7 +18,9 @@ async function waitForBackend(): Promise<boolean> {
     try {
       const res = await fetch('http://localhost:57621/api/health')
       if (res.ok) return true
-    } catch {}
+    } catch (_e) {
+      // ignore and retry
+    }
     await new Promise(r => setTimeout(r, 500))
   }
   return false
@@ -78,7 +80,14 @@ app.whenReady().then(async () => {
   startBackend()
   const ok = await waitForBackend()
   if (ok) createWindow()
-  else app.quit()
+  else {
+    // Wait 2s for graceful shutdown before force quit
+    console.log('Backend failed to start, exiting...')
+    setTimeout(() => {
+      backendProcess?.kill('SIGTERM')
+      app.exit(1)
+    }, 2000)
+  }
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

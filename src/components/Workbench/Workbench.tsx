@@ -10,14 +10,10 @@ interface WorkbenchProps {
 
 const SAMPLE_ORIGINAL = `这是一个用于测试润色功能的小说文本。
 
-在古老的城堡深处，年轻的骑士亚历克斯正准备踏上寻找失落剑的旅程。他的师父曾经告诉他，那把剑拥有改变世界的力量，但也伴随着巨大的危险。
+ 在古老的城堡深处，年轻的骑士亚历克斯正准备踏上寻找失落剑的旅程。他的师父曾经告诉他，那把剑拥有改变世界的力量，但也伴随着巨大的危险。
 
-"记住，"师父说道，"真正的力量不在于剑本身，而在于持剑之人的心。"
+ "记住，"师父说道，"真正的力量不在于剑本身，而在于持剑之人的心。"
 `
-
-const SAMPLE_REVISED = `在古老的城堡深处，年轻的骑士亚历克斯正准备踏上寻找失落圣剑的旅程。他的导师曾经告诫过他，那把剑拥有改变世界的力量，但也伴随着巨大的危险。
-
-"铭记于心，"导师正色道，"真正的力量不在于剑本身，而在于执剑者的心灵。"`
 
 interface ControlBarProps {
   isRunning: boolean
@@ -114,6 +110,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
   const [revisedText, setRevisedText] = React.useState('')
   const [isRunning, setIsRunning] = React.useState(false)
   const [syncScroll, setSyncScroll] = React.useState(true)
+  const abortControllerRef = React.useRef<AbortController | null>(null)
 
   const { progress } = useWebSocket({
     url: wsUrl,
@@ -181,6 +178,15 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
         diffEditorRef.current.dispose()
         diffEditorRef.current = null
       }
+      // Dispose individual editors
+      if (originalEditorRef.current) {
+        (originalEditorRef.current as { dispose?: () => void })?.dispose?.()
+        originalEditorRef.current = null
+      }
+      if (revisedEditorRef.current) {
+        (revisedEditorRef.current as { dispose?: () => void })?.dispose?.()
+        revisedEditorRef.current = null
+      }
       if (syncCleanupRef.current) {
         syncCleanupRef.current()
         syncCleanupRef.current = null
@@ -192,19 +198,54 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
     setSyncScroll(!syncScroll)
   }
 
-  const handleStart = () => {
+  const handleStart = async () => {
     setIsRunning(true)
     setRevisedText('')
-    // Simulate polish process with sample response after delay
-    setTimeout(() => {
-      setRevisedText(SAMPLE_REVISED)
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const response = await fetch('/api/polish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: originalText,
+          enable_safety_exempt: true,
+          enable_xml_isolation: true,
+        }),
+        signal: abortControllerRef.current.signal,
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(error.detail || `HTTP ${response.status}`)
+      }
+
+      const result = await response.json()
+      setRevisedText(result.polished_text || '')
+    } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === 'AbortError') {
+        setRevisedText('已取消')
+        return
+      }
+      const message = err instanceof Error ? err.message : '润色失败'
+      console.error('Polish error:', err)
+      setRevisedText(`错误: ${message}`)
+    } finally {
       setIsRunning(false)
-    }, 2000)
+      abortControllerRef.current = null
+    }
   }
 
   const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
     setIsRunning(false)
   }
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
   const handleLoadOriginal = () => {
     // Open file dialog to load original text
@@ -214,6 +255,10 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (file) {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`文件太大 (${(file.size / 1024 / 1024).toFixed(1)}MB). 最大允许 10MB`)
+          return
+        }
         const text = await file.text()
         setOriginalText(text)
       }

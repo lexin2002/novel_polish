@@ -1,11 +1,24 @@
 """Unified LLM API client - supports OpenAI-compatible and Anthropic-compatible APIs"""
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMResponse:
+    """LLM API response with content and token usage"""
+    content: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
 
 
 class LLMClient:
@@ -50,6 +63,7 @@ class LLMClient:
 
     @property
     def client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client. In single-threaded async, this is safe."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -71,11 +85,12 @@ class LLMClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> str:
+    ) -> LLMResponse:
         """
         Send chat completion request using api_type.
         - "openai": OpenAI-compatible API (/v1/chat/completions)
         - "anthropic": Anthropic API (/v1/messages)
+        Returns LLMResponse with content and token usage.
         """
         if self.api_type == "anthropic":
             return await self._anthropic_chat(messages, temperature, max_tokens)
@@ -87,7 +102,7 @@ class LLMClient:
         messages: List[Dict[str, str]],
         temperature: float,
         max_tokens: int,
-    ) -> str:
+    ) -> LLMResponse:
         """OpenAI-compatible chat completions API (/v1/chat/completions)"""
         payload = {
             "model": self.model,
@@ -120,9 +135,11 @@ class LLMClient:
 
         data = response.json()
         usage = data.get("usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
         logger.info(
             f"[LLMClient] {self.provider} response: "
-            f"tokens={usage.get('total_tokens', 'N/A')}"
+            f"tokens={input_tokens + output_tokens} (in={input_tokens}, out={output_tokens})"
         )
 
         choices = data.get("choices", [])
@@ -134,14 +151,14 @@ class LLMClient:
         content = message.get("content") or message.get("reasoning_content")
         if not content:
             raise LLMConnectionError("API 返回内容为空")
-        return content
+        return LLMResponse(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def _anthropic_chat(
         self,
         messages: List[Dict[str, str]],
         temperature: float,
         max_tokens: int,
-    ) -> str:
+    ) -> LLMResponse:
         """Anthropic API (/v1/messages)"""
         # Convert OpenAI messages format to Anthropic format
         system_msg = ""
@@ -198,11 +215,34 @@ class LLMClient:
             raise LLMConnectionError(f"网络连接失败: {str(e)}")
 
         data = response.json()
+        usage = data.get("usage", {})
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
         logger.info(
-            f"[LLMClient] anthropic response: tokens={data.get('usage', {}).get('input_tokens', 0) + data.get('usage', {}).get('output_tokens', 0)}"
+            f"[LLMClient] anthropic response: tokens={input_tokens + output_tokens} (in={input_tokens}, out={output_tokens}), content_types={[c.get('type') for c in data.get('content', [])]}"
         )
 
-        return data["content"][0]["text"]
+        # Extract text from response - handle different response formats
+        content = data.get("content", [])
+        text_content = ""
+        if content and isinstance(content, list):
+            # Find the first item with type "text" OR missing type but has text field
+            for item in content:
+                item_type = item.get("type")
+                if item_type == "text" or (item_type is None and "text" in item):
+                    text_content = item.get("text", "")
+                    break
+        # Fallback: try common response structures
+        if not text_content:
+            if "text" in data:
+                text_content = data["text"]
+            elif "message" in data and isinstance(data["message"], dict) and "content" in data["message"]:
+                text_content = data["message"]["content"]
+
+        if not text_content:
+            raise LLMConnectionError(f"API 响应格式未知: {str(data)[:500]}")
+
+        return LLMResponse(content=text_content, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def test_connection(self) -> dict:
         """
@@ -217,12 +257,12 @@ class LLMClient:
             result = await self.chatcompletion(
                 messages=test_messages,
                 temperature=0.1,
-                max_tokens=20,
+                max_tokens=200,
             )
             # Verify response is meaningful
-            if not result or len(result.strip()) == 0:
+            if not result or not result.content or len(result.content.strip()) == 0:
                 raise LLMConnectionError("API 返回为空响应")
-            return {"ok": True, "model": self.model, "response": result.strip()[:100]}
+            return {"ok": True, "model": self.model, "response": result.content.strip()[:100]}
         except LLMConnectionError:
             raise
         except Exception as e:

@@ -8,8 +8,11 @@ import debounce from 'lodash.debounce'
  */
 export function detectApiType(baseUrl: string): 'openai' | 'anthropic' {
   if (!baseUrl) return 'openai'
-  // Anthropic API 使用 /v1/messages，其他都使用 /v1/chat/completions
-  if (baseUrl.includes('anthropic.com')) return 'anthropic'
+  // Anthropic API endpoints contain /anthropic/ or are anthropic.com
+  const lower = baseUrl.toLowerCase()
+  if (lower.includes('anthropic.com') || lower.includes('/anthropic/') || lower.endsWith('/anthropic')) {
+    return 'anthropic'
+  }
   return 'openai'
 }
 

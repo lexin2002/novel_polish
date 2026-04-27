@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.llm_client import (
     LLMClient,
     LLMConnectionError,
+    LLMResponse,
     create_llm_client,
 )
 
@@ -87,7 +88,8 @@ class TestLLMClientOpenAICompatible:
 
         result = await client.chatcompletion(messages)
 
-        assert result == "Polished text result"
+        assert result.content == "Polished text result"
+        assert isinstance(result, LLMResponse)
         client._client.post.assert_called_once()
         # Verify /chat/completions endpoint is called
         call_args = client._client.post.call_args
@@ -268,7 +270,8 @@ class TestLLMClientAnthropic:
 
         result = await client.chatcompletion(messages)
 
-        assert result == "Polished text result"
+        assert result.content == "Polished text result"
+        assert isinstance(result, LLMResponse)
         client._client.post.assert_called_once()
         # Verify /messages endpoint is called
         call_args = client._client.post.call_args
