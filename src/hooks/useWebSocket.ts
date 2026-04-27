@@ -100,12 +100,19 @@ export function useWebSocket({
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  // Track isPaused via Ref to avoid re-creating WebSocket on pause toggle
+  const isPausedRef = useRef(isPaused)
+
+  // Keep isPausedRef in sync without triggering connect rebuild
+  useEffect(() => {
+    isPausedRef.current = isPaused
+  }, [isPaused])
 
   const clearLogs = useCallback(() => {
     setLogs([])
   }, [])
 
-  const setPaused = useCallback((paused: boolean) => {
+  const setPausedCallback = useCallback((paused: boolean) => {
     setIsPaused(paused)
   }, [])
 
@@ -118,11 +125,20 @@ export function useWebSocket({
   const connect = useCallback(() => {
     if (!mountedRef.current) return
 
+    // Close existing connection before creating a new one (handles StrictMode double-invoke)
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+
     try {
       const ws = new WebSocket(url)
+      wsRef.current = ws
 
       ws.onopen = () => {
         if (!mountedRef.current) return
+        // Check wsRef hasn't been replaced (StrictMode guard)
+        if (wsRef.current !== ws) return
         setIsConnected(true)
         setError(null)
         // Send initial ping to confirm connection
@@ -131,6 +147,7 @@ export function useWebSocket({
 
       ws.onmessage = (event) => {
         if (!mountedRef.current) return
+        if (wsRef.current !== ws) return
 
         const data = event.data
 
@@ -145,7 +162,8 @@ export function useWebSocket({
         // Try parse as log
         const logEntry = parseLogMessage(data)
         if (logEntry) {
-          if (!isPaused) {
+          // Use ref-based isPaused to avoid stale closure when isPaused changes
+          if (!isPausedRef.current) {
             setLogs((prev) => {
               const newLogs = [...prev, logEntry]
               // Keep maxLogs entries
@@ -175,12 +193,11 @@ export function useWebSocket({
           }
         }, reconnectInterval)
       }
-
-      wsRef.current = ws
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect')
     }
-  }, [url, maxLogs, reconnectInterval, isPaused, onLog, onProgress])
+  }, [url, maxLogs, reconnectInterval, onLog, onProgress])
+  // Note: isPaused intentionally omitted — tracked via isPausedRef to prevent WS reconnect
 
   useEffect(() => {
     mountedRef.current = true
@@ -190,9 +207,11 @@ export function useWebSocket({
       mountedRef.current = false
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
       }
       if (wsRef.current) {
         wsRef.current.close()
+        wsRef.current = null
       }
     }
   }, [connect])
@@ -205,6 +224,6 @@ export function useWebSocket({
     error,
     sendPing,
     clearLogs,
-    setPaused,
+    setPaused: setPausedCallback,
   }
 }
