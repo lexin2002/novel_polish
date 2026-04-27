@@ -117,7 +117,12 @@ class LLMClient:
         if not choices:
             raise LLMConnectionError("API 返回格式错误: 缺少 choices 字段")
 
-        return choices[0]["message"]["content"]
+        message = choices[0].get("message", {})
+        # 支持 DeepSeek 推理模型 (reasoning_content) 和标准模型 (content)
+        content = message.get("content") or message.get("reasoning_content")
+        if not content:
+            raise LLMConnectionError("API 返回内容为空")
+        return content
 
     async def _anthropic_chat(
         self,

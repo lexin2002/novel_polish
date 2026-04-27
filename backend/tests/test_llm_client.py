@@ -447,7 +447,7 @@ class TestLLMClientTestConnection:
         client._client = MagicMock()
         client._client.post = AsyncMock(return_value=mock_response)
 
-        with pytest.raises(LLMConnectionError, match="返回为空"):
+        with pytest.raises(LLMConnectionError, match="返回内容为空"):
             await client.test_connection()
 
 
