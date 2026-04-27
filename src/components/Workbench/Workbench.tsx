@@ -2,7 +2,8 @@ import * as React from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 import type * as monaco from 'monaco-editor'
 import { Play, Square, Link, Link2Off, FileText } from 'lucide-react'
-import { useWebSocket, ProgressInfo } from '../../hooks/useWebSocket'
+import { useWebSocket } from '../../hooks/useWebSocket'
+import { ProgressBar } from '../shared/ProgressBar'
 
 interface WorkbenchProps {
   wsUrl?: string
@@ -65,45 +66,6 @@ const ControlBar: React.FC<ControlBarProps> = ({
     </div>
   </div>
 )
-
-interface ProgressBarProps {
-  progress: ProgressInfo | null
-}
-
-const ProgressBar: React.FC<ProgressBarProps> = ({ progress }) => {
-  if (!progress) {
-    return (
-      <div className="px-4 py-2 bg-gray-50 border-b border-border">
-        <span className="text-sm text-gray-400">等待开始润色任务...</span>
-      </div>
-    )
-  }
-
-  const { chunk, totalChunks, iteration, totalIterations, message } = progress
-  const totalProgress = totalChunks > 0 && totalIterations > 0
-    ? ((chunk * totalIterations + iteration) / (totalChunks * totalIterations)) * 100
-    : 0
-
-  return (
-    <div className="px-4 py-2 bg-gray-50 border-b border-border">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium text-gray-700">
-          块 {chunk}/{totalChunks}，迭代 {iteration}/{totalIterations}
-        </span>
-        <span className="text-sm text-gray-500">{Math.round(totalProgress)}%</span>
-      </div>
-      <div className="h-2 bg-gray-300 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${totalProgress}%` }}
-        />
-      </div>
-      {message && (
-        <p className="text-xs text-gray-500 mt-1 truncate">{message}</p>
-      )}
-    </div>
-  )
-}
 
 export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57621/ws/logs' }) => {
   const [originalText, setOriginalText] = React.useState(SAMPLE_ORIGINAL)

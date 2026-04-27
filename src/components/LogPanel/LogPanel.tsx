@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Pause, Play, Trash2, Wifi, WifiOff } from 'lucide-react'
-import { useWebSocket, LogEntry, ProgressInfo } from '../../hooks/useWebSocket'
+import { useWebSocket, LogEntry } from '../../hooks/useWebSocket'
+import { ProgressBar } from '../shared/ProgressBar'
 
 interface LogPanelProps {
   url?: string
@@ -28,37 +29,6 @@ const LogLine: React.FC<LogLineProps> = ({ entry }) => (
     </span>
   </div>
 )
-
-interface ProgressBarProps {
-  progress: ProgressInfo
-}
-
-const ProgressBar: React.FC<ProgressBarProps> = ({ progress }) => {
-  const { chunk, totalChunks, iteration, totalIterations, message } = progress
-  const totalProgress = totalChunks > 0 && totalIterations > 0
-    ? ((chunk * totalIterations + iteration) / (totalChunks * totalIterations)) * 100
-    : 0
-
-  return (
-    <div className="bg-gray-100 border-b border-gray-300 px-4 py-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium text-gray-700">
-          块 {chunk}/{totalChunks}，迭代 {iteration}/{totalIterations}
-        </span>
-        <span className="text-sm text-gray-500">{Math.round(totalProgress)}%</span>
-      </div>
-      <div className="h-2 bg-gray-300 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${totalProgress}%` }}
-        />
-      </div>
-      {message && (
-        <p className="text-xs text-gray-500 mt-1 truncate">{message}</p>
-      )}
-    </div>
-  )
-}
 
 export const LogPanel: React.FC<LogPanelProps> = ({ url = 'ws://localhost:57621/ws/logs' }) => {
   const {
