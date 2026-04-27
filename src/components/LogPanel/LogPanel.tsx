@@ -6,11 +6,11 @@ interface LogPanelProps {
   url?: string
 }
 
-const LOG_LEVEL_COLORS: Record<LogEntry['level'], string> = {
-  INFO: '#1e1e1e',
-  WARN: '#d97706',
-  ERROR: '#dc2626',
-  DEBUG: '#6b7280',
+const LOG_LEVEL_CLASSES: Record<LogEntry['level'], string> = {
+  INFO: 'text-gray-900',
+  WARN: 'text-amber-600',
+  ERROR: 'text-red-600',
+  DEBUG: 'text-gray-500',
 }
 
 interface LogLineProps {
@@ -20,13 +20,10 @@ interface LogLineProps {
 const LogLine: React.FC<LogLineProps> = ({ entry }) => (
   <div className="flex font-mono text-sm leading-5">
     <span className="text-gray-500 w-40 flex-shrink-0">{entry.timestamp}</span>
-    <span
-      className="w-16 flex-shrink-0 font-medium"
-      style={{ color: LOG_LEVEL_COLORS[entry.level] }}
-    >
+    <span className={`w-16 flex-shrink-0 font-medium ${LOG_LEVEL_CLASSES[entry.level]}`}>
       {entry.level}
     </span>
-    <span className="flex-1" style={{ color: LOG_LEVEL_COLORS[entry.level] }}>
+    <span className={`flex-1 ${LOG_LEVEL_CLASSES[entry.level]}`}>
       {entry.message}
     </span>
   </div>
