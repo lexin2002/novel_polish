@@ -70,10 +70,10 @@ class PolishingService:
         # Get chunk timeout from config (default 60s)
         self.chunk_timeout = self.engine_config.get("chunk_timeout_seconds", 60)
 
-        # Create rate limiter
+        # Create rate limiter (capacity = 2x fill_rate for burst tolerance)
         rate_limit = self.engine_config.get("max_requests_per_second", 2)
         self.rate_limiter = AsyncTokenBucket(
-            capacity=rate_limit,
+            capacity=rate_limit * 2,
             fill_rate=rate_limit,
         )
 

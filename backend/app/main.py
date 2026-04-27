@@ -108,11 +108,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Attach WebSocket handler to root logger
+# Attach WebSocket handler to the app logger only.
+# uvicorn logs propagate to root logger automatically, so they are included.
 setup_logging_handler(logger)
-# Also attach to uvicorn logger for request logging
-uvicorn_logger = logging.getLogger("uvicorn")
-setup_logging_handler(uvicorn_logger)
 
 # Include routers
 app.include_router(rest_router)
