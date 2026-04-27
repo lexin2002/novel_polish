@@ -1,5 +1,12 @@
 import { chromium } from '@playwright/test';
 
+const API_KEY = process.env.MINIMAX_API_KEY || '';
+if (!API_KEY) {
+  console.error('MINIMAX_API_KEY 环境变量未设置');
+  console.error('使用方法: MINIMAX_API_KEY=your-key npx tsx configure-minimax.ts');
+  process.exit(1);
+}
+
 async function configureMiniMax() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
@@ -24,7 +31,7 @@ async function configureMiniMax() {
   console.log('4. 填写 API Key...');
   const apiKeyInput = page.locator('input[type="password"], input[placeholder*="API"], input[placeholder*="Key"]').first();
   if (await apiKeyInput.isVisible()) {
-    await apiKeyInput.fill('sk-cp-xMgG9N3YJzPo81kzeG3gf_KkGx6aM9kPtcoJTnvOhuG4nVjb43ejZl_T3SxqOky_FrwoZ7_MXJFGVBIoohV6Q-frc174H13ksMc2akhp6bmrcVdiQBS7mJk');
+    await apiKeyInput.fill(API_KEY);
     console.log('   API Key 已填写');
   }
 
