@@ -236,7 +236,9 @@ class ConfigurationManager:
                 raise
 
     def read_config(self) -> Dict[str, Any]:
-        """Read config.jsonc with fallback to default on error"""
+        """Read config.jsonc with fallback to default on error.
+        Auto-fixes corrupted provider data on read and persists fixes.
+        """
         with filelock.FileLock(self.config_lock_path, timeout=10):
             try:
                 if not self.config_path.exists():
@@ -244,6 +246,13 @@ class ConfigurationManager:
 
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     data = json5.load(f)
+
+                # Auto-fix corrupted provider data and persist
+                llm_config = data.get("llm", {})
+                data["llm"], was_modified = self._migrate_llm_config(llm_config)
+                if was_modified:
+                    self._atomic_write_config(data)
+                    logger.info("Auto-fixed corrupted provider data in config")
 
                 logger.debug("Config read successfully")
                 return data
@@ -261,21 +270,40 @@ class ConfigurationManager:
                 data[key] = DEFAULT_CONFIG[key]
 
         # Migrate old flat llm config to new provider-centric format
-        data["llm"] = self._migrate_llm_config(data.get("llm", {}))
+        data["llm"], _ = self._migrate_llm_config(data.get("llm", {}))
 
         self._atomic_write_config(data)
 
-    def _migrate_llm_config(self, llm_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Migrate old flat llm config to new provider-centric format."""
+    def _migrate_llm_config(self, llm_config: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        """Migrate old flat llm config to new provider-centric format.
+        Returns (config, was_modified) tuple for write-back if needed.
+        """
         default = _build_default_llm_config()
+        was_modified = False
 
-        # If already migrated, return as-is
+        # If already migrated, check data integrity and fix if needed
         if "providers" in llm_config:
             # Ensure all provider slots exist (newly added providers)
-            for provider_id, info in LLM_PROVIDERS.items():
+            for provider_id in LLM_PROVIDERS:
                 if provider_id not in llm_config["providers"]:
                     llm_config["providers"][provider_id] = _make_provider_config(provider_id)
-            return llm_config
+                    was_modified = True
+
+            # Fix ALL provider data that may have been written with wrong defaults
+            for provider_id, provider_data in llm_config["providers"].items():
+                if provider_id not in LLM_PROVIDERS:
+                    continue
+                info = LLM_PROVIDERS[provider_id]
+                # Fix wrong base_url
+                if provider_data.get("base_url") != info["default_base_url"]:
+                    provider_data["base_url"] = info["default_base_url"]
+                    was_modified = True
+                # Fix models list if missing but provider should have models
+                if not provider_data.get("models") and info["models"]:
+                    provider_data["models"] = list(info["models"])
+                    provider_data["active_model"] = info["models"][0]
+                    was_modified = True
+            return llm_config, was_modified
 
         # Migrate old format: flatten llm config → providers
         old_provider = llm_config.get("provider", "openai")
@@ -286,11 +314,12 @@ class ConfigurationManager:
         # Copy old values into the old provider slot
         if old_provider in providers:
             providers[old_provider]["api_key"] = llm_config.get("api_key", "")
-            providers[old_provider]["base_url"] = llm_config.get("base_url", "")
+            providers[old_provider]["base_url"] = llm_config.get("base_url", providers[old_provider]["base_url"])
             providers[old_provider]["active_model"] = llm_config.get("model", providers[old_provider]["active_model"])
-            # Also set the models list to include the old model if not in default list
-            if llm_config.get("model") and llm_config.get("model") not in providers[old_provider]["models"]:
-                providers[old_provider]["models"] = [llm_config.get("model")] + providers[old_provider]["models"]
+            # Only add the old model if it exists and isn't in the default list
+            old_model = llm_config.get("model")
+            if old_model and old_model not in providers[old_provider]["models"]:
+                providers[old_provider]["models"] = [old_model] + providers[old_provider]["models"]
 
         result = default.copy()
         result["providers"] = providers
@@ -302,7 +331,7 @@ class ConfigurationManager:
         result["desensitize_mode"] = llm_config.get("desensitize_mode", False)
 
         logger.info(f"Migrated llm config from old format, active_provider={old_provider}")
-        return result
+        return result, True
 
     def patch_config(self, patch: Dict[str, Any]) -> Dict[str, Any]:
         """Partially update config"""
