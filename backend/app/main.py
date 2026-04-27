@@ -64,11 +64,12 @@ async def lifespan(app: FastAPI):
                 api_key=api_key,
                 base_url=active_provider_cfg.get("base_url", ""),
                 model=active_provider_cfg.get("active_model", ""),
+                api_type=active_provider_cfg.get("api", "openai"),
                 timeout=120.0,
             )
             service = await create_polishing_service(client)
             set_polishing_service(service)
-            logger.info(f"Polishing service initialized with provider={active_provider}, model={active_provider_cfg.get('active_model')}")
+            logger.info(f"Polishing service initialized with provider={active_provider}, api={active_provider_cfg.get('api', 'openai')}, model={active_provider_cfg.get('active_model')}")
         else:
             logger.warning(f"No API key configured for active provider '{active_provider}' - /api/polish will return 503")
 

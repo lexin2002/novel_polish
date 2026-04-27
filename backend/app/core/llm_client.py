@@ -12,13 +12,12 @@ class LLMClient:
     """
     Unified LLM client that works with OpenAI-compatible and Anthropic-compatible APIs.
 
-    Supported providers:
-    - openai, deepseek, qwen, siliconflow: OpenAI-compatible (/v1/chat/completions)
-    - anthropic: Anthropic API (/v1/messages)
-    - custom: user-defined OpenAI-compatible endpoint
+    api_type determines which API protocol to use:
+    - "openai": OpenAI-compatible (/v1/chat/completions) - works with OpenAI, DeepSeek, Qwen, etc.
+    - "anthropic": Anthropic API (/v1/messages) - works with Anthropic
     """
 
-    PROVIDER_OPENAI_COMPATIBLE = {"openai", "deepseek", "qwen", "siliconflow", "custom"}
+    SUPPORTED_API_TYPES = {"openai", "anthropic"}
 
     def __init__(
         self,
@@ -26,12 +25,14 @@ class LLMClient:
         api_key: str,
         base_url: str,
         model: str,
+        api_type: str = "openai",
         timeout: float = 60.0,
     ):
         self.provider = provider
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.api_type = api_type  # "openai" or "anthropic" - user-configured
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
 
@@ -60,10 +61,11 @@ class LLMClient:
         max_tokens: int = 4096,
     ) -> str:
         """
-        Send chat completion request using provider-appropriate API.
-        Works with OpenAI-compatible APIs and falls back to Anthropic API.
+        Send chat completion request using api_type.
+        - "openai": OpenAI-compatible API (/v1/chat/completions)
+        - "anthropic": Anthropic API (/v1/messages)
         """
-        if self.provider == "anthropic":
+        if self.api_type == "anthropic":
             return await self._anthropic_chat(messages, temperature, max_tokens)
         else:
             return await self._openai_compatible_chat(messages, temperature, max_tokens)
@@ -220,6 +222,7 @@ async def create_llm_client(
     api_key: str,
     base_url: str,
     model: str,
+    api_type: str = "openai",
     timeout: float = 60.0,
 ) -> LLMClient:
     """Factory to create an LLM client."""
@@ -228,5 +231,6 @@ async def create_llm_client(
         api_key=api_key,
         base_url=base_url,
         model=model,
+        api_type=api_type,
         timeout=timeout,
     )

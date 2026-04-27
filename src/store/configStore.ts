@@ -4,6 +4,7 @@ import debounce from 'lodash.debounce'
 
 export interface ProviderConfig {
   name: string
+  api: 'openai' | 'anthropic'  // API protocol type
   api_key: string
   base_url: string
   models: string[]
@@ -71,6 +72,7 @@ interface ConfigStore {
 export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   openai: {
     name: 'OpenAI',
+    api: 'openai',
     api_key: '',
     base_url: 'https://api.openai.com/v1',
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
@@ -78,6 +80,7 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
   anthropic: {
     name: 'Anthropic',
+    api: 'anthropic',
     api_key: '',
     base_url: 'https://api.anthropic.com/v1',
     models: ['claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-haiku-latest'],
@@ -85,6 +88,7 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
   deepseek: {
     name: 'DeepSeek',
+    api: 'openai',
     api_key: '',
     base_url: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-coder'],
@@ -92,6 +96,7 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
   qwen: {
     name: '通义千问',
+    api: 'openai',
     api_key: '',
     base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
@@ -99,6 +104,7 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
   siliconflow: {
     name: 'SiliconFlow',
+    api: 'openai',
     api_key: '',
     base_url: 'https://api.siliconflow.cn/v1',
     models: ['THUDM/GLM-4-32B-0414', 'Qwen/Qwen2-72B-Instruct', 'deepseek-ai/DeepSeek-V2.5'],
@@ -106,6 +112,7 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   },
   custom: {
     name: '自定义',
+    api: 'openai',
     api_key: '',
     base_url: '',
     models: [],

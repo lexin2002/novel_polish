@@ -323,6 +323,41 @@ export const Sidebar: React.FC = () => {
                   <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
                     {active.name} 配置
                   </div>
+                  {/* API Type Selector */}
+                  <ConfigItem label="API 类型">
+                    <Select.Root
+                      value={active.api}
+                      onValueChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'api'], v)}
+                    >
+                      <Select.Trigger
+                        className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-border rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
+                        aria-label="选择 API 类型"
+                      >
+                        <Select.Value />
+                        <Select.Icon>
+                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        </Select.Icon>
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg z-50">
+                          <Select.Viewport className="p-1">
+                            <Select.Item
+                              value="openai"
+                              className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
+                            >
+                              <Select.ItemText>OpenAI 兼容 (Chat Completions)</Select.ItemText>
+                            </Select.Item>
+                            <Select.Item
+                              value="anthropic"
+                              className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
+                            >
+                              <Select.ItemText>Anthropic (Messages)</Select.ItemText>
+                            </Select.Item>
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                  </ConfigItem>
                   <TextItem
                     label="API Key"
                     value={active.api_key}

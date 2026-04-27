@@ -88,6 +88,11 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
     api_key = provider_data.get("api_key", "").strip()
     base_url = provider_data.get("base_url", "").strip()
     active_model = provider_data.get("active_model", "").strip()
+    api_type = provider_data.get("api", "openai").strip()
+
+    # Validate api type
+    if api_type not in ("openai", "anthropic"):
+        return {"ok": False, "error": f"不支持的 API 类型: '{api_type}'。支持的类型: openai (OpenAI兼容), anthropic"}
 
     if not api_key:
         return {"ok": False, "error": "API Key 不能为空"}
@@ -102,6 +107,7 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
             api_key=api_key,
             base_url=base_url,
             model=active_model,
+            api_type=api_type,
             timeout=30.0,
         )
         result = await client.test_connection()

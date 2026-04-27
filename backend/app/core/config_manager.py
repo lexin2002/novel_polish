@@ -17,31 +17,37 @@ logger = logging.getLogger(__name__)
 LLM_PROVIDERS: Dict[str, Dict[str, Any]] = {
     "openai": {
         "name": "OpenAI",
+        "api": "openai",
         "default_base_url": "https://api.openai.com/v1",
         "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
     },
     "anthropic": {
         "name": "Anthropic",
+        "api": "anthropic",
         "default_base_url": "https://api.anthropic.com/v1",
         "models": ["claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-latest"],
     },
     "deepseek": {
         "name": "DeepSeek",
+        "api": "openai",
         "default_base_url": "https://api.deepseek.com/v1",
         "models": ["deepseek-chat", "deepseek-coder"],
     },
     "qwen": {
         "name": "通义千问",
+        "api": "openai",
         "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
     },
     "siliconflow": {
         "name": "SiliconFlow",
+        "api": "openai",
         "default_base_url": "https://api.siliconflow.cn/v1",
         "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
     },
     "custom": {
         "name": "自定义",
+        "api": "openai",
         "default_base_url": "",
         "models": [],
     },
@@ -53,9 +59,10 @@ def _make_provider_config(provider_id: str) -> Dict[str, Any]:
     info = LLM_PROVIDERS.get(provider_id, LLM_PROVIDERS["custom"])
     return {
         "name": info["name"],
+        "api": info["api"],
         "api_key": "",
         "base_url": info["default_base_url"],
-        "models": info["models"],
+        "models": list(info["models"]),
         "active_model": info["models"][0] if info["models"] else "",
     }
 
@@ -294,6 +301,10 @@ class ConfigurationManager:
                 if provider_id not in LLM_PROVIDERS:
                     continue
                 info = LLM_PROVIDERS[provider_id]
+                # Fix missing or wrong api field
+                if provider_data.get("api") != info["api"]:
+                    provider_data["api"] = info["api"]
+                    was_modified = True
                 # Fix wrong base_url
                 if provider_data.get("base_url") != info["default_base_url"]:
                     provider_data["base_url"] = info["default_base_url"]
