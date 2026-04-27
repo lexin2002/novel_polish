@@ -305,8 +305,8 @@ class ConfigurationManager:
                 if provider_data.get("api") != info["api"]:
                     provider_data["api"] = info["api"]
                     was_modified = True
-                # Fix wrong base_url
-                if provider_data.get("base_url") != info["default_base_url"]:
+                # Only fix empty base_url (allow user to set custom base_url)
+                if not provider_data.get("base_url"):
                     provider_data["base_url"] = info["default_base_url"]
                     was_modified = True
                 # Fix models list if missing but provider should have models
