@@ -139,7 +139,7 @@ const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, s
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  const ruleIds = subCategory.rules.map((_, i) => `rule-${catIndex}-${subIndex}-${i}`)
+  const ruleIds = subCategory.rules.map((rule) => `rule-${rule.id}`)
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -208,7 +208,7 @@ const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, s
           <SortableContext items={ruleIds} strategy={verticalListSortingStrategy}>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               {subCategory.rules.map((rule, ruleIdx) => (
-                <SortableItem key={ruleIds[ruleIdx]} id={ruleIds[ruleIdx]}>
+                <SortableItem key={rule.id} id={`rule-${rule.id}`}>
                   <RuleItem
                     catIndex={catIndex}
                     subIndex={subIndex}
@@ -240,7 +240,7 @@ const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  const subIds = category.sub_categories.map((_, i) => `sub-${index}-${i}`)
+  const subIds = category.sub_categories.map((sub) => `sub-${sub.id}`)
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -319,7 +319,7 @@ const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
           <SortableContext items={subIds} strategy={verticalListSortingStrategy}>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               {category.sub_categories.map((sub, subIdx) => (
-                <SortableItem key={subIds[subIdx]} id={subIds[subIdx]}>
+                <SortableItem key={sub.id} id={`sub-${sub.id}`}>
                   <SubCategoryItem
                     catIndex={index}
                     subIndex={subIdx}
@@ -354,7 +354,7 @@ export const RuleEditor: React.FC = () => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  const catIds = draft?.main_categories.map((_, i) => `cat-${i}`) || []
+  const catIds = draft?.main_categories.map((cat) => `cat-${cat.id}`) || []
 
   React.useEffect(() => {
     fetchRules()
@@ -454,7 +454,7 @@ export const RuleEditor: React.FC = () => {
         <SortableContext items={catIds} strategy={verticalListSortingStrategy}>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             {draft.main_categories.map((category, idx) => (
-              <SortableItem key={catIds[idx]} id={catIds[idx]}>
+              <SortableItem key={category.id} id={`cat-${category.id}`}>
                 <CategoryItem index={idx} category={category} />
               </SortableItem>
             ))}

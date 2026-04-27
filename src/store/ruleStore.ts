@@ -1,7 +1,31 @@
 import { create } from 'zustand'
 import axios from 'axios'
 
+/** Generate a unique ID for stable dnd-kit sortable keys */
+function generateId(): string {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** Recursively assign IDs to items that are missing them */
+function ensureIds(data: RulesState): RulesState {
+  return {
+    main_categories: data.main_categories.map((cat) => ({
+      ...cat,
+      id: cat.id || generateId(),
+      sub_categories: cat.sub_categories.map((sub) => ({
+        ...sub,
+        id: sub.id || generateId(),
+        rules: sub.rules.map((rule) => ({
+          ...rule,
+          id: rule.id || generateId(),
+        })),
+      })),
+    })),
+  }
+}
+
 export interface Rule {
+  id: string
   name: string
   is_active: boolean
   instruction: string
@@ -9,12 +33,14 @@ export interface Rule {
 }
 
 export interface SubCategory {
+  id: string
   name: string
   priority: string
   rules: Rule[]
 }
 
 export interface MainCategory {
+  id: string
   name: string
   priority: string
   is_active: boolean
@@ -75,11 +101,11 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
     try {
       const response = await axios.get<RulesState>('/api/rules')
       const data = response.data
-      // Deep clone to separate draft from original
-      const cloned = JSON.parse(JSON.stringify(data))
+      // Deep clone & ensure every node has a unique id for stable drag & drop keys
+      const withIds = ensureIds(JSON.parse(JSON.stringify(data)))
       set({
-        draft: cloned,
-        original: data,
+        draft: withIds,
+        original: withIds,
         isLoading: false,
       })
     } catch (err) {
@@ -119,7 +145,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
   revertRules: () => {
     const { original } = get()
     if (original) {
-      set({ draft: JSON.parse(JSON.stringify(original)), validationErrors: [] })
+      set({ draft: ensureIds(JSON.parse(JSON.stringify(original))), validationErrors: [] })
     }
   },
 
@@ -218,6 +244,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       if (!state.draft) return state
       const newCategories = [...state.draft.main_categories]
       newCategories.push({
+        id: generateId(),
         name: '新类别',
         priority: 'P2',
         is_active: true,
@@ -244,7 +271,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       const cat = { ...cats[catIndex] }
       cat.sub_categories = [
         ...cat.sub_categories,
-        { name: '新子类别', priority: 'P2', rules: [] },
+        { id: generateId(), name: '新子类别', priority: 'P2', rules: [] },
       ]
       cats[catIndex] = cat
       newDraft.main_categories = cats
@@ -276,7 +303,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       const subCat = { ...subs[subIndex] }
       subCat.rules = [
         ...subCat.rules,
-        { name: '新规则', is_active: true, instruction: '', direction: '' },
+        { id: generateId(), name: '新规则', is_active: true, instruction: '', direction: '' },
       ]
       subs[subIndex] = subCat
       cat.sub_categories = subs
