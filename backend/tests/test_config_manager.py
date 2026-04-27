@@ -254,6 +254,258 @@ class TestConcurrentAccess:
         assert "engine" in data
 
 
+class TestLLMConfigMigration:
+    """Test migration from old flat config to provider-centric format"""
+
+    def test_migrate_old_flat_config_returns_correct_structure(self, config_manager):
+        """Test that _migrate_llm_config converts old format to provider-centric"""
+        old_llm_config = {
+            "provider": "openai",
+            "api_key": "sk-old-key",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-4o",
+            "temperature": 0.5,
+        }
+
+        result, was_modified = config_manager._migrate_llm_config(old_llm_config)
+
+        assert was_modified is True
+        assert "providers" in result
+        assert result["active_provider"] == "openai"
+        assert result["providers"]["openai"]["api_key"] == "sk-old-key"
+        assert result["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
+        assert result["providers"]["openai"]["active_model"] == "gpt-4o"
+        assert result["temperature"] == 0.5
+
+    def test_migrate_old_config_preserves_all_provider_api_types(self, config_manager):
+        """Test that migration assigns correct api type to each provider"""
+        old_llm_config = {
+            "provider": "anthropic",
+            "api_key": "sk-ant-key",
+            "model": "claude-3-5-sonnet-latest",
+        }
+
+        result, _ = config_manager._migrate_llm_config(old_llm_config)
+
+        # Each provider should have correct api field
+        assert result["providers"]["openai"]["api"] == "openai"
+        assert result["providers"]["anthropic"]["api"] == "anthropic"
+        assert result["providers"]["deepseek"]["api"] == "openai"
+        assert result["providers"]["qwen"]["api"] == "openai"
+        assert result["providers"]["siliconflow"]["api"] == "openai"
+        assert result["providers"]["custom"]["api"] == "openai"
+
+    def test_migrate_old_custom_model_is_prepended(self, config_manager):
+        """Test that old custom model not in default list is prepended during migration"""
+        old_llm_config = {
+            "provider": "openai",
+            "api_key": "sk-key",
+            "model": "custom-model-xyz",  # Not in default list
+        }
+
+        result, _ = config_manager._migrate_llm_config(old_llm_config)
+
+        # Custom model should be prepended to list
+        models = result["providers"]["openai"]["models"]
+        assert models[0] == "custom-model-xyz"
+        assert "gpt-4o" in models
+
+    def test_fix_already_migrated_wrong_api_field(self, config_manager):
+        """Test that already migrated config with wrong api field is auto-fixed"""
+        llm_config = {
+            "active_provider": "anthropic",
+            "providers": {
+                "openai": {
+                    "name": "OpenAI",
+                    "api": "anthropic",  # WRONG - should be "openai"
+                    "api_key": "sk-key",
+                    "base_url": "https://api.openai.com/v1",
+                    "models": ["gpt-4o"],
+                    "active_model": "gpt-4o",
+                },
+                "anthropic": {
+                    "name": "Anthropic",
+                    "api": "anthropic",
+                    "api_key": "sk-ant-key",
+                    "base_url": "https://api.anthropic.com/v1",
+                    "models": ["claude-3-5-sonnet-latest"],
+                    "active_model": "claude-3-5-sonnet-latest",
+                },
+            },
+            "temperature": 0.4,
+        }
+
+        result, was_modified = config_manager._migrate_llm_config(llm_config)
+
+        # api field should be fixed
+        assert was_modified is True
+        assert result["providers"]["openai"]["api"] == "openai"
+        # anthropic should still be correct
+        assert result["providers"]["anthropic"]["api"] == "anthropic"
+
+    def test_fix_already_migrated_wrong_base_url(self, config_manager):
+        """Test that already migrated config with wrong base_url is auto-fixed"""
+        llm_config = {
+            "active_provider": "openai",
+            "providers": {
+                "openai": {
+                    "name": "OpenAI",
+                    "api": "openai",
+                    "api_key": "sk-key",
+                    "base_url": "https://wrong-url.com/v1",  # WRONG
+                    "models": ["gpt-4o"],
+                    "active_model": "gpt-4o",
+                },
+            },
+            "temperature": 0.4,
+        }
+
+        result, was_modified = config_manager._migrate_llm_config(llm_config)
+
+        assert was_modified is True
+        assert result["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
+
+    def test_fix_already_migrated_missing_provider_added(self, config_manager):
+        """Test that already migrated config missing a provider gets it added"""
+        llm_config = {
+            "active_provider": "openai",
+            "providers": {
+                "openai": {
+                    "name": "OpenAI",
+                    "api": "openai",
+                    "api_key": "sk-key",
+                    "base_url": "https://api.openai.com/v1",
+                    "models": ["gpt-4o"],
+                    "active_model": "gpt-4o",
+                },
+            },
+            "temperature": 0.4,
+        }
+
+        result, was_modified = config_manager._migrate_llm_config(llm_config)
+
+        assert was_modified is True
+        # All providers should now exist
+        assert "anthropic" in result["providers"]
+        assert "deepseek" in result["providers"]
+        assert "qwen" in result["providers"]
+        assert "siliconflow" in result["providers"]
+        assert "custom" in result["providers"]
+
+    def test_migration_returns_was_modified_true_for_old_format(self, config_manager):
+        """Test that migration returns was_modified=True for old format"""
+        old_llm_config = {
+            "provider": "deepseek",
+            "api_key": "sk-deepseek",
+            "model": "deepseek-chat",
+        }
+
+        _, was_modified = config_manager._migrate_llm_config(old_llm_config)
+
+        assert was_modified is True
+
+    def test_migration_returns_was_modified_false_for_valid_already_migrated(self, config_manager):
+        """Test that migration returns was_modified=False for already-valid migrated config"""
+        valid_llm_config = {
+            "active_provider": "openai",
+            "providers": {
+                "openai": {
+                    "name": "OpenAI",
+                    "api": "openai",
+                    "api_key": "sk-key",
+                    "base_url": "https://api.openai.com/v1",
+                    "models": ["gpt-4o"],
+                    "active_model": "gpt-4o",
+                },
+                "anthropic": {
+                    "name": "Anthropic",
+                    "api": "anthropic",
+                    "api_key": "sk-ant-key",
+                    "base_url": "https://api.anthropic.com/v1",
+                    "models": ["claude-3-5-sonnet-latest"],
+                    "active_model": "claude-3-5-sonnet-latest",
+                },
+                "deepseek": {
+                    "name": "DeepSeek",
+                    "api": "openai",
+                    "api_key": "",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "models": ["deepseek-chat", "deepseek-coder"],
+                    "active_model": "deepseek-chat",
+                },
+                "qwen": {
+                    "name": "通义千问",
+                    "api": "openai",
+                    "api_key": "",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+                    "active_model": "qwen-turbo",
+                },
+                "siliconflow": {
+                    "name": "SiliconFlow",
+                    "api": "openai",
+                    "api_key": "",
+                    "base_url": "https://api.siliconflow.cn/v1",
+                    "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
+                    "active_model": "THUDM/GLM-4-32B-0414",
+                },
+                "custom": {
+                    "name": "自定义",
+                    "api": "openai",
+                    "api_key": "",
+                    "base_url": "",
+                    "models": [],
+                    "active_model": "",
+                },
+            },
+            "temperature": 0.4,
+            "max_tokens": 4096,
+            "safety_exempt_enabled": True,
+            "xml_tag_isolation_enabled": True,
+            "desensitize_mode": False,
+        }
+
+        _, was_modified = config_manager._migrate_llm_config(valid_llm_config)
+
+        # Should not be modified since it's already valid
+        assert was_modified is False
+
+    def test_write_config_migrates_old_format(self, config_manager):
+        """Test that write_config migrates old format config"""
+        # Write old format directly via patch
+        old_config = DEFAULT_CONFIG.copy()
+        old_config["llm"] = {
+            "provider": "anthropic",
+            "api_key": "sk-ant-test",
+            "base_url": "https://api.anthropic.com/v1",
+            "model": "claude-3-5-sonnet-latest",
+            "temperature": 0.6,
+        }
+        config_manager.write_config(old_config)
+
+        # Read back should have migrated format
+        result = config_manager.read_config()
+
+        assert "providers" in result["llm"]
+        assert result["llm"]["active_provider"] == "anthropic"
+        assert result["llm"]["providers"]["anthropic"]["api_key"] == "sk-ant-test"
+        assert result["llm"]["temperature"] == 0.6
+
+    def test_read_config_auto_fixes_on_load(self, config_manager):
+        """Test that read_config auto-fixes migrated config with wrong api field"""
+        # Write config with wrong api field using write_config
+        config = DEFAULT_CONFIG.copy()
+        config["llm"]["providers"]["openai"]["api"] = "anthropic"  # Wrong!
+        config["llm"]["providers"]["openai"]["base_url"] = "https://wrong.com"  # Wrong!
+        config_manager.write_config(config)
+
+        # Read should auto-fix
+        result = config_manager.read_config()
+
+        assert result["llm"]["providers"]["openai"]["api"] == "openai"
+        assert result["llm"]["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
+
+
 class TestConfigAPI:
     """Test REST API integration"""
 

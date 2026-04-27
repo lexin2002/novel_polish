@@ -41,28 +41,34 @@ novel_polish/
 │   │   │   ├── rest.py         # REST API 端点
 │   │   │   └── ws.py           # WebSocket 日志广播
 │   │   ├── core/
-│   │   │   ├── config_manager.py  # 配置管理（原子写入）
+│   │   │   ├── config_manager.py  # 配置管理（原子写入、多提供商）
 │   │   │   ├── history_db.py      # 历史数据库
 │   │   │   ├── rate_limiter.py     # 限流器
+│   │   │   ├── llm_client.py       # 统一 LLM 客户端（OpenAI/Anthropic）
 │   │   │   └── config.py           # 配置常量
 │   │   └── main.py             # 应用入口
 │   └── tests/                  # pytest 测试
+│       ├── test_llm_client.py   # LLMClient 单元测试
+│       ├── test_config_manager.py
+│       ├── test_rest.py
+│       └── ...
 │
 ├── src/                        # React 前端源码
 │   ├── components/
 │   │   ├── RuleEditor/        # 规则配置编辑器
 │   │   ├── LogPanel/          # 实时日志面板
-│   │   └── Sidebar/            # 配置驾驶舱
+│   │   ├── Sidebar/            # 配置驾驶舱（系统设置）
+│   │   └── Workbench/          # 润色工作台
 │   ├── hooks/
-│   │   └── useWebSocket.ts    # WebSocket Hook
+│   │   └── useWebSocket.ts     # WebSocket Hook
 │   ├── store/
-│   │   ├── configStore.ts      # 配置状态管理
+│   │   ├── configStore.ts      # 配置状态管理（多提供商）
 │   │   └── ruleStore.ts        # 规则状态管理
 │   ├── App.tsx                # 应用入口
-│   └── main.tsx                # React 入口
+│   └── main.tsx               # React 入口
 │
 ├── tests/e2e/                  # Playwright E2E 测试
-├── electron/                  # Electron 主进程
+├── electron/                   # Electron 主进程
 └── package.json
 ```
 
@@ -113,12 +119,17 @@ pytest tests/ -v
 | 方法 | 路径 | 描述 |
 |------|------|------|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/config` | 获取配置 |
-| PATCH | `/api/config` | 更新配置 |
+| GET | `/api/config` | 获取完整配置 |
+| PATCH | `/api/config` | 部分更新配置（支持嵌套路径） |
+| POST | `/api/config/reset` | 重置为默认配置 |
+| POST | `/api/config/test-connection` | 测试 LLM API 连接 |
 | GET | `/api/rules` | 获取规则 |
 | POST | `/api/rules` | 保存规则 |
 | GET | `/api/history` | 获取历史记录 |
+| GET | `/api/history/count` | 获取历史记录数量 |
+| GET | `/api/history/{id}` | 获取指定历史记录 |
 | DELETE | `/api/history/{id}` | 删除历史记录 |
+| POST | `/api/polish` | 润色文本 |
 
 ### WebSocket
 
@@ -129,41 +140,120 @@ pytest tests/ -v
 ## 配置说明
 
 ### 配置文件位置
-- 配置文件：`backend/data/config.jsonc`
-- 规则文件：`backend/data/rules.json`
-- 历史数据库：`backend/data/history.db`
+- **Linux/macOS**: `~/.config/NovelPolish/config.jsonc`
+- **Windows**: `%APPDATA%/NovelPolish/config.jsonc`
+- 规则文件：同上目录下的 `rules.json`
+- 历史数据库：`~/.config/NovelPolish/history.db`（或 `%APPDATA%/NovelPolish/history.db`）
 
-### 配置结构
+### LLM 配置结构
+
+LLM 配置采用**以提供商为中心**的结构，支持多提供商切换：
 
 ```json
 {
-  "priority_order": ["P0", "P1", "P2", "P3"],
   "llm": {
-    "provider": "openai",
-    "model": "gpt-4o",
-    "api_key": "",
-    "base_url": "https://api.openai.com/v1",
+    "active_provider": "openai",
     "temperature": 0.4,
-    "max_tokens": 4096
+    "max_tokens": 4096,
+    "safety_exempt_enabled": true,
+    "xml_tag_isolation_enabled": true,
+    "desensitize_mode": false,
+    "providers": {
+      "openai": {
+        "name": "OpenAI",
+        "api": "openai",
+        "api_key": "sk-...",
+        "base_url": "https://api.openai.com/v1",
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+        "active_model": "gpt-4o"
+      },
+      "anthropic": {
+        "name": "Anthropic",
+        "api": "anthropic",
+        "api_key": "sk-ant-...",
+        "base_url": "https://api.anthropic.com/v1",
+        "models": ["claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-latest"],
+        "active_model": "claude-3-5-sonnet-latest"
+      },
+      "deepseek": {
+        "name": "DeepSeek",
+        "api": "openai",
+        "api_key": "sk-...",
+        "base_url": "https://api.deepseek.com/v1",
+        "models": ["deepseek-chat", "deepseek-coder"],
+        "active_model": "deepseek-chat"
+      },
+      "qwen": {
+        "name": "通义千问",
+        "api": "openai",
+        "api_key": "sk-...",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "active_model": "qwen-turbo"
+      },
+      "siliconflow": {
+        "name": "SiliconFlow",
+        "api": "openai",
+        "api_key": "sk-...",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
+        "active_model": "THUDM/GLM-4-32B-0414"
+      },
+      "custom": {
+        "name": "自定义",
+        "api": "openai",
+        "api_key": "sk-...",
+        "base_url": "",
+        "models": [],
+        "active_model": ""
+      }
+    }
   },
-  "engine": {
-    "chunk_size": 1000,
-    "max_workers": 3,
-    "max_revisions": 2
-  },
-  "network": {
-    "request_timeout": 5,
-    "retry_count": 3
-  },
-  "ui": {
-    "log_to_file_enabled": true,
-    "sync_scroll_default": false
-  },
-  "history": {
-    "max_snapshots": 20
-  }
+  "engine": { ... },
+  "network": { ... },
+  "ui": { ... },
+  "history": { ... }
 }
 ```
+
+### API 类型说明
+
+每个提供商都有 `api` 字段，决定使用哪种 API 协议：
+
+| api 值 | 说明 | 使用的 API 端点 |
+|--------|------|----------------|
+| `openai` | OpenAI 兼容协议（Chat Completions） | `/v1/chat/completions` |
+| `anthropic` | Anthropic 协议（Messages） | `/v1/messages` |
+
+**重要**: `api` 字段控制实际使用的协议，**不是**提供商名称。例如：
+- OpenAI 必须使用 `api: "openai"`
+- Anthropic 必须使用 `api: "anthropic"`
+- DeepSeek/Qwen/SiliconFlow 使用 `api: "openai"`（它们是 OpenAI 兼容 API）
+
+### 测试 LLM 连接
+
+在 UI 中配置完成后，可以点击"测试连接"按钮验证 API Key 和配置是否正确。
+
+也可以通过 API 测试：
+
+```bash
+curl -X POST http://localhost:57621/api/config/test-connection \
+  -H "Content-Type: application/json" \
+  -d '{
+    "active_provider": "openai",
+    "providers": {
+      "openai": {
+        "api": "openai",
+        "api_key": "your-key-here",
+        "base_url": "https://api.openai.com/v1",
+        "active_model": "gpt-4o"
+      }
+    }
+  }'
+```
+
+成功返回：`{"ok": true, "model": "gpt-4o", "response": "OK"}`
+失败返回：`{"ok": false, "error": "认证失败: API Key 无效或已过期 (401)"}`
 
 ## 规则配置
 

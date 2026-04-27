@@ -29,22 +29,69 @@ http://localhost:57621
 
 **GET** `/api/config`
 
-获取完整配置。
+获取完整配置（包含所有提供商的配置）。
 
 **Response**
 ```json
 {
   "priority_order": ["P0", "P1", "P2", "P3"],
   "llm": {
-    "provider": "openai",
-    "model": "gpt-4o",
-    "api_key": "",
-    "base_url": "https://api.openai.com/v1",
+    "active_provider": "openai",
     "temperature": 0.4,
     "max_tokens": 4096,
     "safety_exempt_enabled": true,
     "xml_tag_isolation_enabled": true,
-    "desensitize_mode": false
+    "desensitize_mode": false,
+    "providers": {
+      "openai": {
+        "name": "OpenAI",
+        "api": "openai",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+        "active_model": "gpt-4o"
+      },
+      "anthropic": {
+        "name": "Anthropic",
+        "api": "anthropic",
+        "api_key": "",
+        "base_url": "https://api.anthropic.com/v1",
+        "models": ["claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-latest"],
+        "active_model": "claude-3-5-sonnet-latest"
+      },
+      "deepseek": {
+        "name": "DeepSeek",
+        "api": "openai",
+        "api_key": "",
+        "base_url": "https://api.deepseek.com/v1",
+        "models": ["deepseek-chat", "deepseek-coder"],
+        "active_model": "deepseek-chat"
+      },
+      "qwen": {
+        "name": "通义千问",
+        "api": "openai",
+        "api_key": "",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "active_model": "qwen-turbo"
+      },
+      "siliconflow": {
+        "name": "SiliconFlow",
+        "api": "openai",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
+        "active_model": "THUDM/GLM-4-32B-0414"
+      },
+      "custom": {
+        "name": "自定义",
+        "api": "openai",
+        "api_key": "",
+        "base_url": "",
+        "models": [],
+        "active_model": ""
+      }
+    }
   },
   "engine": {
     "chunk_size": 1000,
@@ -82,14 +129,20 @@ http://localhost:57621
 
 **PATCH** `/api/config`
 
-部分更新配置（支持嵌套键）。
+部分更新配置（支持嵌套路径）。可更新特定提供商的配置，或切换活动提供商。
 
 **Request Body**
 ```json
 {
   "llm": {
+    "active_provider": "anthropic",
     "temperature": 0.6,
-    "model": "gpt-4-turbo"
+    "providers": {
+      "anthropic": {
+        "api_key": "sk-ant-...",
+        "active_model": "claude-3-5-sonnet-latest"
+      }
+    }
   }
 }
 ```
@@ -98,19 +151,76 @@ http://localhost:57621
 
 ---
 
-### Get Configuration Paths
+### Reset Configuration
 
-**GET** `/api/config/path`
+**POST** `/api/config/reset`
 
-获取配置文件路径。
+重置配置为默认值。
 
 **Response**
 ```json
 {
-  "config": "/path/to/config.jsonc",
-  "rules": "/path/to/rules.json"
+  "status": "ok",
+  "message": "Config reset to defaults"
 }
 ```
+
+---
+
+### Test LLM Connection
+
+**POST** `/api/config/test-connection`
+
+测试 LLM API 连接是否可用。
+
+**Request Body** - LLM 配置的 `llm` 部分
+
+```json
+{
+  "active_provider": "openai",
+  "providers": {
+    "openai": {
+      "api": "openai",
+      "api_key": "sk-...",
+      "base_url": "https://api.openai.com/v1",
+      "active_model": "gpt-4o"
+    }
+  }
+}
+```
+
+**Response (成功)**
+```json
+{
+  "ok": true,
+  "model": "gpt-4o",
+  "response": "OK"
+}
+```
+
+**Response (失败)**
+```json
+{
+  "ok": false,
+  "error": "认证失败: API Key 无效或已过期 (401)"
+}
+```
+
+**错误类型**
+
+| 错误信息 | 说明 |
+|---------|------|
+| `API Key 不能为空` | 未提供 API Key |
+| `Base URL 不能为空` | 未提供 Base URL |
+| `请先选择一个模型` | 未选择模型 |
+| `不支持的 API 类型: xxx` | `api` 字段值无效（应为 `openai` 或 `anthropic`） |
+| `认证失败: API Key 无效或已过期 (401)` | API Key 错误 |
+| `访问被拒绝: 权限不足 (403)` | 账户权限不足 |
+| `模型不存在: xxx (404)` | 模型名称错误或不支持 |
+| `请求频率超限，请稍后重试 (429)` | 请求过于频繁 |
+| `网络连接失败: xxx` | 网络问题 |
+
+---
 
 ---
 
@@ -372,21 +482,32 @@ interface RulesState {
 }
 ```
 
+### ProviderConfig
+
+```typescript
+interface ProviderConfig {
+  name: string              // 显示名称，如 "OpenAI"
+  api: "openai" | "anthropic"  // API 协议类型
+  api_key: string           // API 密钥
+  base_url: string          // API 端点基础 URL
+  models: string[]           // 可用模型列表
+  active_model: string       // 当前选中的模型
+}
+```
+
 ### ConfigState
 
 ```typescript
 interface ConfigState {
   priority_order: string[]
   llm: {
-    provider: string
-    model: string
-    api_key: string
-    base_url: string
+    active_provider: string                        // 当前活动的提供商 ID
     temperature: number
     max_tokens: number
     safety_exempt_enabled: boolean
     xml_tag_isolation_enabled: boolean
     desensitize_mode: boolean
+    providers: Record<string, ProviderConfig>        // 所有提供商的配置
   }
   engine: {
     chunk_size: number
