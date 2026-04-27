@@ -2,9 +2,24 @@ import { create } from 'zustand'
 import axios from 'axios'
 import debounce from 'lodash.debounce'
 
+/**
+ * 根据 base_url 自动检测 API 类型（只用于显示）
+ * 实际调用由后端根据 base_url 自动路由
+ */
+export function detectApiType(baseUrl: string): 'openai' | 'anthropic' {
+  if (!baseUrl) return 'openai'
+  // Anthropic API 使用 /v1/messages，其他都使用 /v1/chat/completions
+  if (baseUrl.includes('anthropic.com')) return 'anthropic'
+  return 'openai'
+}
+
+export function getApiTypeName(api: 'openai' | 'anthropic'): string {
+  return api === 'anthropic' ? 'Anthropic (Messages API)' : 'OpenAI 兼容 (Chat Completions)'
+}
+
 export interface ProviderConfig {
   name: string
-  api: 'openai' | 'anthropic'  // API protocol type
+  api: 'openai' | 'anthropic'  // API protocol type (auto-detected from base_url, for display only)
   api_key: string
   base_url: string
   models: string[]

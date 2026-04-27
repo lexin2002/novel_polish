@@ -25,16 +25,28 @@ class LLMClient:
         api_key: str,
         base_url: str,
         model: str,
-        api_type: str = "openai",
+        api_type: str | None = None,  # Optional - auto-detected from base_url if not provided
         timeout: float = 60.0,
     ):
         self.provider = provider
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.api_type = api_type  # "openai" or "anthropic" - user-configured
+        # Auto-detect API type from base_url if not provided
+        self.api_type = api_type or self._detect_api_type(self.base_url)
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _detect_api_type(self, base_url: str) -> str:
+        """
+        Detect API type from base_url.
+        Anthropic API uses /v1/messages, all others use /v1/chat/completions.
+        """
+        if not base_url:
+            return "openai"
+        if "anthropic.com" in base_url:
+            return "anthropic"
+        return "openai"
 
     @property
     def client(self) -> httpx.AsyncClient:

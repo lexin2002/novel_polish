@@ -103,31 +103,6 @@ async def test_test_connection_missing_model():
 
 
 @pytest.mark.asyncio
-async def test_test_connection_invalid_api_type():
-    """Test POST /api/config/test-connection returns error for invalid api type"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/api/config/test-connection",
-            json={
-                "active_provider": "openai",
-                "providers": {
-                    "openai": {
-                        "api": "invalid_api_type",
-                        "api_key": "sk-test",
-                        "base_url": "https://api.openai.com/v1",
-                        "active_model": "gpt-4o",
-                    }
-                },
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["ok"] is False
-        assert "不支持的 API 类型" in data["error"]
-
-
-@pytest.mark.asyncio
 async def test_test_connection_success_openai():
     """Test POST /api/config/test-connection returns ok=True for valid OpenAI config"""
     transport = ASGITransport(app=app)

@@ -4,7 +4,7 @@ import * as Switch from '@radix-ui/react-switch'
 import * as Slider from '@radix-ui/react-slider'
 import * as Select from '@radix-ui/react-select'
 import { ChevronDown, RotateCcw, Settings } from 'lucide-react'
-import { useConfigStore, ConfigState } from '../../store/configStore'
+import { useConfigStore, ConfigState, detectApiType, getApiTypeName } from '../../store/configStore'
 
 interface ConfigItemProps {
   label: string
@@ -323,40 +323,12 @@ export const Sidebar: React.FC = () => {
                   <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
                     {active.name} 配置
                   </div>
-                  {/* API Type Selector */}
+                  {/* API Type - Auto-detected from Base URL (read-only) */}
                   <ConfigItem label="API 类型">
-                    <Select.Root
-                      value={active.api}
-                      onValueChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'api'], v)}
-                    >
-                      <Select.Trigger
-                        className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-border rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
-                        aria-label="选择 API 类型"
-                      >
-                        <Select.Value />
-                        <Select.Icon>
-                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                        </Select.Icon>
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg z-50">
-                          <Select.Viewport className="p-1">
-                            <Select.Item
-                              value="openai"
-                              className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
-                            >
-                              <Select.ItemText>OpenAI 兼容 (Chat Completions)</Select.ItemText>
-                            </Select.Item>
-                            <Select.Item
-                              value="anthropic"
-                              className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
-                            >
-                              <Select.ItemText>Anthropic (Messages)</Select.ItemText>
-                            </Select.Item>
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <div className="px-3 py-2 text-sm bg-muted/30 border border-border rounded-md text-muted-foreground">
+                      {getApiTypeName(detectApiType(active.base_url))}
+                      <span className="text-xs text-muted-foreground/60 ml-2">(根据 Base URL 自动检测)</span>
+                    </div>
                   </ConfigItem>
                   <TextItem
                     label="API Key"
