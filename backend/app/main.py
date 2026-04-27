@@ -49,24 +49,28 @@ async def lifespan(app: FastAPI):
         history_db.set_max_snapshots(max_snapshots)
         logger.info(f"History max_snapshots set to {max_snapshots}")
 
-        # Initialize SiliconFlow client and polishing service if API key is configured
+        # Initialize LLM client and polishing service with active provider
         llm_config = config.get("llm", {})
         providers = llm_config.get("providers", {})
-        siliconflow_cfg = providers.get("siliconflow", {})
-        api_key = siliconflow_cfg.get("api_key", "")
+        active_provider = llm_config.get("active_provider", "openai")
+        active_provider_cfg = providers.get(active_provider, {})
+        api_key = active_provider_cfg.get("api_key", "")
+
         if api_key:
-            logger.info("SiliconFlow API key configured, initializing polishing service")
-            from app.core.siliconflow_client import create_siliconflow_client
-            client = await create_siliconflow_client(
+            logger.info(f"API key configured for '{active_provider}', initializing polishing service")
+            from app.core.llm_client import create_llm_client
+            client = await create_llm_client(
+                provider=active_provider,
                 api_key=api_key,
-                base_url=siliconflow_cfg.get("base_url"),
-                model=siliconflow_cfg.get("active_model"),
+                base_url=active_provider_cfg.get("base_url", ""),
+                model=active_provider_cfg.get("active_model", ""),
+                timeout=120.0,
             )
             service = await create_polishing_service(client)
             set_polishing_service(service)
-            logger.info("Polishing service initialized successfully")
+            logger.info(f"Polishing service initialized with provider={active_provider}, model={active_provider_cfg.get('active_model')}")
         else:
-            logger.warning("No SiliconFlow API key configured - /api/polish will return 503")
+            logger.warning(f"No API key configured for active provider '{active_provider}' - /api/polish will return 503")
 
     except Exception as e:
         logger.warning(f"Could not load config: {e}")

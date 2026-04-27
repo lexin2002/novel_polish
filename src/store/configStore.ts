@@ -60,6 +60,7 @@ interface ConfigStore {
   fetchConfig: () => Promise<void>
   patchConfig: (patch: Partial<ConfigState>) => void
   resetConfig: () => Promise<void>
+  testConnection: () => Promise<{ ok: boolean; error?: string }>
   updateConfig: (patch: Partial<ConfigState>) => void
 
   // Debounced patch (will be set up after store creation)
@@ -151,6 +152,21 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to reset config'
       set({ error: message, isLoading: false })
+    }
+  },
+
+  testConnection: async (): Promise<{ ok: boolean; error?: string }> => {
+    const { config } = get()
+    if (!config) return { ok: false, error: 'Config not loaded' }
+    try {
+      const response = await axios.post<{ ok: boolean; error?: string }>(
+        '/api/config/test-connection',
+        config.llm
+      )
+      return response.data
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Connection test failed'
+      return { ok: false, error: message }
     }
   },
 

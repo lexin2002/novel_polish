@@ -63,6 +63,56 @@ async def reset_config() -> Dict[str, Any]:
     return {"status": "ok", "message": "Config reset to defaults"}
 
 
+@router.post("/api/config/test-connection")
+async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Test LLM API connection with given provider credentials.
+
+    Request body (from config.llm section):
+        active_provider: str - Provider ID
+        providers: Dict[str, ProviderConfig] - All provider configs
+
+    Returns:
+        {"ok": True, "model": "...", "response": "..."} on success
+        {"ok": False, "error": "..."} on failure
+    """
+    from app.core.llm_client import create_llm_client, LLMConnectionError
+
+    providers = provider_config.get("providers", {})
+    active_provider = provider_config.get("active_provider", "openai")
+
+    if active_provider not in providers:
+        return {"ok": False, "error": f"Provider '{active_provider}' not found in config"}
+
+    provider_data = providers[active_provider]
+    api_key = provider_data.get("api_key", "").strip()
+    base_url = provider_data.get("base_url", "").strip()
+    active_model = provider_data.get("active_model", "").strip()
+
+    if not api_key:
+        return {"ok": False, "error": "API Key 不能为空"}
+    if not base_url:
+        return {"ok": False, "error": "Base URL 不能为空"}
+    if not active_model:
+        return {"ok": False, "error": "请先选择一个模型"}
+
+    try:
+        client = await create_llm_client(
+            provider=active_provider,
+            api_key=api_key,
+            base_url=base_url,
+            model=active_model,
+            timeout=30.0,
+        )
+        result = await client.test_connection()
+        await client.close()
+        return {"ok": True, "model": result["model"], "response": result.get("response", "OK")}
+    except LLMConnectionError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": f"连接失败: {str(e)}"}
+
+
 @router.get("/api/config/path")
 async def get_config_path() -> Dict[str, str]:
     """Get configuration file paths"""

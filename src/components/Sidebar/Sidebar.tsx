@@ -199,10 +199,17 @@ const TextItem: React.FC<TextItemProps> = ({ label, value, placeholder, type = '
 
 export const Sidebar: React.FC = () => {
   const { config, isLoading, isSyncing, error, resetConfig, fetchConfig } = useConfigStore()
+  const [testState, setTestState] = React.useState<{ testing: boolean; result: { ok: boolean; error?: string } | null }>({ testing: false, result: null })
 
   React.useEffect(() => {
     fetchConfig()
   }, [])
+
+  const handleTestConnection = async () => {
+    setTestState({ testing: true, result: null })
+    const result = await useConfigStore.getState().testConnection()
+    setTestState({ testing: false, result })
+  }
 
   if (isLoading) {
     return (
@@ -329,11 +336,48 @@ export const Sidebar: React.FC = () => {
                     placeholder="https://..."
                     onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'base_url'], v)}
                   />
-                  <ModelSelector
-                    value={active.active_model}
-                    models={active.models}
-                    onChange={(model) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], model)}
-                  />
+                  {active.models.length > 0 && (
+                    <ModelSelector
+                      value={active.active_model}
+                      models={active.models}
+                      onChange={(model) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], model)}
+                    />
+                  )}
+                  {config.llm.active_provider === 'custom' && (
+                    <TextItem
+                      label="自定义模型"
+                      value={active.active_model}
+                      placeholder="e.g. gpt-4, claude-3-sonnet"
+                      onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], v)}
+                    />
+                  )}
+
+                  {/* Test Connection Button */}
+                  <div className="mt-3">
+                    <button
+                      onClick={handleTestConnection}
+                      disabled={testState.testing || !active.api_key || !active.base_url || !active.active_model}
+                      className="w-full px-3 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-green-600 text-white hover:bg-green-700"
+                    >
+                      {testState.testing ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          连接中...
+                        </span>
+                      ) : (
+                        '测试连接'
+                      )}
+                    </button>
+                    {testState.result && (
+                      <div className={`mt-2 text-xs px-2 py-1.5 rounded ${testState.result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                        {testState.result.ok ? (
+                          <span>✅ 连接成功！模型: {testState.result.error || 'OK'}</span>
+                        ) : (
+                          <span>❌ {testState.result.error}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="border-t border-border my-3" />
                 </>
               )
