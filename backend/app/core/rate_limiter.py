@@ -66,31 +66,30 @@ class AsyncTokenBucket:
             True if tokens were consumed, False if not enough tokens
             and blocking=False
         """
-        async with self._lock:
-            await self._refill()
+        while True:
+            async with self._lock:
+                await self._refill()
 
-            if self.tokens >= tokens:
-                self.tokens -= tokens
-                return True
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return True
 
-            if not blocking:
-                return False
+                if not blocking:
+                    return False
 
-            # Calculate wait time for tokens to become available
-            needed = tokens - self.tokens
-            wait_time = needed / self.fill_rate
+                # Calculate wait time for tokens to become available
+                needed = tokens - self.tokens
+                wait_time = needed / self.fill_rate
 
-            # Log at INFO if significant delay (> 3 seconds)
-            if wait_time > 3:
-                logger.info(f"Rate limiter: waiting {wait_time:.2f}s for tokens")
-            else:
-                logger.debug(f"Token bucket waiting {wait_time:.2f}s for tokens")
+                # Log at INFO if significant delay (> 3 seconds)
+                if wait_time > 3:
+                    logger.info(f"Rate limiter: waiting {wait_time:.2f}s for tokens")
+                else:
+                    logger.debug(f"Token bucket waiting {wait_time:.2f}s for tokens")
+
+            # Sleep outside the lock so other coroutines can proceed
             await asyncio.sleep(wait_time)
-
-            # Refill and consume
-            await self._refill()
-            self.tokens = max(0, self.tokens - tokens)
-            return True
+            # Loop back: re-acquire lock, refill, and try again
 
     async def get_available_tokens(self) -> float:
         """Get current number of available tokens"""

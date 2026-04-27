@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Supported LLM Providers ────────────────────────────────────────────────
+# ⚠️ SYNC_WARNING: 此列表必须与前端 src/store/configStore.ts:DEFAULT_PROVIDERS 保持同步
 LLM_PROVIDERS: Dict[str, Dict[str, Any]] = {
     "openai": {
         "name": "OpenAI",

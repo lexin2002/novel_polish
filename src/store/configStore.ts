@@ -87,6 +87,7 @@ interface ConfigStore {
 }
 
 // Default provider configs (matches backend LLM_PROVIDERS)
+// ⚠️ SYNC_WARNING: 此列表必须与后端 backend/app/core/config_manager.py:LLM_PROVIDERS 保持同步
 export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
   openai: {
     name: 'OpenAI',
