@@ -41,17 +41,19 @@ class TestLLMClientSiliconFlow:
         assert client.base_url == "https://custom.api.com"
         assert client.model == "custom/model"
 
-    def test_client_property_creates_httpx_client(self):
-        """Client property creates HTTP client on first access"""
+    @pytest.mark.asyncio
+    async def test_client_property_creates_httpx_client(self):
+        """get_client() creates HTTP client on first access"""
         client = LLMClient(
             provider="siliconflow",
             api_key="test-key",
             base_url="https://api.siliconflow.cn/v1",
             model="THUDM/GLM-4-32B-0414",
         )
-        http_client = client.client
+        http_client = await client.get_client()
         assert http_client is not None
         assert client.base_url in str(http_client.base_url)
+        await client.close()
 
     @pytest.mark.asyncio
     async def test_chatcompletion_success(self):
