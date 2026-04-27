@@ -135,7 +135,7 @@ class TextSlicer:
         # Account for overlap: effective size = max_chunk_size - context_overlap
         effective_size = self.max_chunk_size - self.context_overlap
         if effective_size <= 0:
-            effective_size = self.max_chunk_size // 2
+            effective_size = max(self.max_chunk_size // 2, 1)
             logger.warning(
                 f"context_overlap ({self.context_overlap}) >= max_chunk_size ({self.max_chunk_size}), "
                 f"using effective size {effective_size}"

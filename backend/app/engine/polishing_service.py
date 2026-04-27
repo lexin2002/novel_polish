@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.config_manager import get_config_manager
 from app.core.rate_limiter import AsyncTokenBucket
-from app.engine.prompt_builder import PromptBuilder, SafetyPromptBuilder, create_prompt_builder
+from app.engine.prompt_builder import PromptBuilder, create_prompt_builder
 from app.engine.text_slicer import TextSlicer, Chunk, create_slicer
 
 logger = logging.getLogger(__name__)

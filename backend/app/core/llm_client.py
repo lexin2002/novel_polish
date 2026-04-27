@@ -153,7 +153,10 @@ class LLMClient:
 
         message = choices[0].get("message", {})
         # 支持 DeepSeek 推理模型 (reasoning_content) 和标准模型 (content)
-        content = message.get("content") or message.get("reasoning_content")
+        # 显式 None 检查而非 `or`，避免 content 为空字符串时误用 reasoning_content
+        content = message.get("content")
+        if content is None:
+            content = message.get("reasoning_content")
         if not content:
             raise LLMConnectionError("API 返回内容为空")
         return LLMResponse(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
