@@ -229,6 +229,20 @@ export const Sidebar: React.FC = () => {
     useConfigStore.getState().updateConfig(patch as Partial<ConfigState>)
   }
 
+  /** Batch multiple path updates into a single deepClone + updateConfig call */
+  const batchUpdate = (updates: Array<{ path: string[]; value: unknown }>) => {
+    const patch = deepClone(config)
+    for (const { path, value } of updates) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let current: any = patch
+      for (let i = 0; i < path.length - 1; i++) {
+        current = current[path[i]]
+      }
+      current[path[path.length - 1]] = value
+    }
+    useConfigStore.getState().updateConfig(patch as Partial<ConfigState>)
+  }
+
   return (
     <aside className="w-80 bg-white border-r border-border overflow-y-auto">
       <div className="p-4 border-b border-border sticky top-0 bg-white z-10">
@@ -309,10 +323,13 @@ export const Sidebar: React.FC = () => {
                         .replace(/\/messages\/?$/, '')
                         .replace(/\/chat\/completions\/?$/, '')
                         .replace(/\/$/, '')
-                      // Auto-detect API type from base_url and update it
+                      // Auto-detect API type from base_url — single batch update
                       const detectedApi = detectApiType(normalized)
-                      update(['llm', 'providers', config.llm.active_provider, 'base_url'], normalized)
-                      update(['llm', 'providers', config.llm.active_provider, 'api'], detectedApi)
+                      const providerPath = ['llm', 'providers', config.llm.active_provider]
+                      batchUpdate([
+                        { path: [...providerPath, 'base_url'], value: normalized },
+                        { path: [...providerPath, 'api'], value: detectedApi },
+                      ])
                     }}
                   />
                   {/* Custom provider name editing */}
