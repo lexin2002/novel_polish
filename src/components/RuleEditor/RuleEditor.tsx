@@ -131,24 +131,10 @@ interface SubCategoryItemProps {
 
 const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, subCategory }) => {
   const [isExpanded, setIsExpanded] = React.useState(true)
-  const { updateSubCategory, addRule, deleteSubCategory, moveRule } = useRuleStore()
+  const { updateSubCategory, addRule, deleteSubCategory } = useRuleStore()
   const priorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']
 
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
-
-  const ruleIds = subCategory.rules.map((rule) => `rule-${rule.id}`)
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = ruleIds.indexOf(active.id as string)
-      const newIndex = ruleIds.indexOf(over.id as string)
-      moveRule(catIndex, subIndex, oldIndex, newIndex)
-    }
-  }
+  const ruleIds = subCategory.rules.map((rule) => `rule-${catIndex}-${subIndex}-${rule.id}`)
 
   return (
     <div className="mb-2">
@@ -206,18 +192,16 @@ const SubCategoryItem: React.FC<SubCategoryItemProps> = ({ catIndex, subIndex, s
       {isExpanded && (
         <TreeNode>
           <SortableContext items={ruleIds} strategy={verticalListSortingStrategy}>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              {subCategory.rules.map((rule, ruleIdx) => (
-                <SortableItem key={rule.id} id={`rule-${rule.id}`}>
-                  <RuleItem
-                    catIndex={catIndex}
-                    subIndex={subIndex}
-                    ruleIndex={ruleIdx}
-                    rule={rule}
-                  />
-                </SortableItem>
-              ))}
-            </DndContext>
+            {subCategory.rules.map((rule, ruleIdx) => (
+              <SortableItem key={rule.id} id={`rule-${catIndex}-${subIndex}-${rule.id}`}>
+                <RuleItem
+                  catIndex={catIndex}
+                  subIndex={subIndex}
+                  ruleIndex={ruleIdx}
+                  rule={rule}
+                />
+              </SortableItem>
+            ))}
           </SortableContext>
         </TreeNode>
       )}
@@ -232,24 +216,10 @@ interface CategoryItemProps {
 
 const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
   const [isExpanded, setIsExpanded] = React.useState(true)
-  const { updateCategory, addSubCategory, deleteCategory, moveSubCategory } = useRuleStore()
+  const { updateCategory, addSubCategory, deleteCategory } = useRuleStore()
   const priorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']
 
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
-
-  const subIds = category.sub_categories.map((sub) => `sub-${sub.id}`)
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = subIds.indexOf(active.id as string)
-      const newIndex = subIds.indexOf(over.id as string)
-      moveSubCategory(index, oldIndex, newIndex)
-    }
-  }
+  const subIds = category.sub_categories.map((sub) => `sub-${index}-${sub.id}`)
 
   return (
     <div className="mb-4">
@@ -317,17 +287,15 @@ const CategoryItem: React.FC<CategoryItemProps> = ({ index, category }) => {
       {isExpanded && (
         <TreeNode>
           <SortableContext items={subIds} strategy={verticalListSortingStrategy}>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              {category.sub_categories.map((sub, subIdx) => (
-                <SortableItem key={sub.id} id={`sub-${sub.id}`}>
-                  <SubCategoryItem
-                    catIndex={index}
-                    subIndex={subIdx}
-                    subCategory={sub}
-                  />
-                </SortableItem>
-              ))}
-            </DndContext>
+            {category.sub_categories.map((sub, subIdx) => (
+              <SortableItem key={sub.id} id={`sub-${index}-${sub.id}`}>
+                <SubCategoryItem
+                  catIndex={index}
+                  subIndex={subIdx}
+                  subCategory={sub}
+                />
+              </SortableItem>
+            ))}
           </SortableContext>
         </TreeNode>
       )}
@@ -347,6 +315,8 @@ export const RuleEditor: React.FC = () => {
     revertRules,
     clearValidationErrors,
     moveCategory,
+    moveSubCategory,
+    moveRule,
   } = useRuleStore()
 
   const sensors = useSensors(
@@ -367,12 +337,32 @@ export const RuleEditor: React.FC = () => {
     }
   }
 
+  /** Unified drag handler routing by ID prefix */
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
-    if (over && active.id !== over.id && draft) {
-      const oldIndex = catIds.indexOf(active.id as string)
+    if (!over || active.id === over.id || !draft) return
+
+    const activeId = active.id as string
+
+    if (activeId.startsWith('cat-')) {
+      const oldIndex = catIds.indexOf(activeId)
       const newIndex = catIds.indexOf(over.id as string)
-      moveCategory(oldIndex, newIndex)
+      if (oldIndex >= 0 && newIndex >= 0) moveCategory(oldIndex, newIndex)
+    } else if (activeId.startsWith('sub-')) {
+      const parts = activeId.split('-')
+      const catIndex = parseInt(parts[1], 10)
+      const subIds = draft.main_categories[catIndex]?.sub_categories.map((s) => `sub-${catIndex}-${s.id}`) || []
+      const oldIndex = subIds.indexOf(activeId)
+      const newIndex = subIds.indexOf(over.id as string)
+      if (oldIndex >= 0 && newIndex >= 0) moveSubCategory(catIndex, oldIndex, newIndex)
+    } else if (activeId.startsWith('rule-')) {
+      const parts = activeId.split('-')
+      const catIndex = parseInt(parts[1], 10)
+      const subIndex = parseInt(parts[2], 10)
+      const ruleIds = draft.main_categories[catIndex]?.sub_categories[subIndex]?.rules.map((r) => `rule-${catIndex}-${subIndex}-${r.id}`) || []
+      const oldIndex = ruleIds.indexOf(activeId)
+      const newIndex = ruleIds.indexOf(over.id as string)
+      if (oldIndex >= 0 && newIndex >= 0) moveRule(catIndex, subIndex, oldIndex, newIndex)
     }
   }
 
@@ -449,17 +439,17 @@ export const RuleEditor: React.FC = () => {
         </div>
       )}
 
-      {/* Tree Editor */}
+      {/* Tree Editor — single DndContext for all three levels */}
       <div className="flex-1 overflow-y-auto p-4">
-        <SortableContext items={catIds} strategy={verticalListSortingStrategy}>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={catIds} strategy={verticalListSortingStrategy}>
             {draft.main_categories.map((category, idx) => (
               <SortableItem key={category.id} id={`cat-${category.id}`}>
                 <CategoryItem index={idx} category={category} />
               </SortableItem>
             ))}
-          </DndContext>
-        </SortableContext>
+          </SortableContext>
+        </DndContext>
 
         {draft.main_categories.length === 0 && (
           <div className="text-center text-muted-foreground py-8">
