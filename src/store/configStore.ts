@@ -104,7 +104,7 @@ const DEFAULT_CONFIG: ConfigState = {
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
   config: null,
-  isLoading: false,
+  isLoading: true,
   isSyncing: false,
   error: null,
   debouncedPatch: null,

@@ -48,9 +48,17 @@ test.describe('LogPanel E2E Tests', () => {
   test('should clear logs on clear button click', async ({ page }) => {
     // Open log panel
     await page.click('button:has-text("日志")')
+    await page.waitForTimeout(500)
 
-    // Wait for any logs to appear (may be empty or show waiting message)
-    // Check the log count shows 0 条
+    // Wait for log panel to be open with log count visible
+    const logCount = page.locator('text=/\\d+ 条/')
+    await expect(logCount).toBeVisible()
+
+    // Click clear button
+    await page.click('button:has-text("清空")')
+    await page.waitForTimeout(300)
+
+    // Count should now be 0
     await expect(page.locator('text=0 条')).toBeVisible()
   })
 

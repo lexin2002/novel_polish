@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { DiffEditor } from '@monaco-editor/react'
+import type * as monaco from 'monaco-editor'
 import { Play, Square, Link, Link2Off, FileText } from 'lucide-react'
 import { useWebSocket, ProgressInfo } from '../../hooks/useWebSocket'
 
@@ -123,8 +124,15 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
   const originalEditorRef = React.useRef<unknown>(null)
   const revisedEditorRef = React.useRef<unknown>(null)
   const isScrollingRef = React.useRef(false)
+  const diffEditorRef = React.useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+  const syncCleanupRef = React.useRef<(() => void) | null>(null)
 
-  const setupSyncScroll = (originalEditor: unknown, revisedEditor: unknown) => {
+  // Setup sync scroll when editors mount
+  const setupSyncScroll = React.useCallback((originalEditor: unknown, revisedEditor: unknown, diffEditor: monaco.editor.IStandaloneDiffEditor) => {
+    if (syncCleanupRef.current) {
+      syncCleanupRef.current()
+      syncCleanupRef.current = null
+    }
     if (!originalEditor || !revisedEditor || !syncScroll) return
 
     const originalDom = (originalEditor as { getDomNode?: () => HTMLElement }).getDomNode?.()
@@ -156,9 +164,29 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
 
     const sourceEl = originalScrollArea as HTMLElement
     const targetEl = revisedScrollArea as HTMLElement
-    sourceEl.addEventListener('scroll', syncHandler(sourceEl, targetEl))
-    revisedScrollArea.addEventListener('scroll', syncHandler(targetEl, sourceEl))
-  }
+    const handler1 = syncHandler(sourceEl, targetEl)
+    const handler2 = syncHandler(targetEl, sourceEl)
+    sourceEl.addEventListener('scroll', handler1)
+    revisedScrollArea.addEventListener('scroll', handler2)
+
+    syncCleanupRef.current = () => {
+      sourceEl.removeEventListener('scroll', handler1)
+      revisedScrollArea.removeEventListener('scroll', handler2)
+    }
+  }, [syncScroll])
+
+  React.useEffect(() => {
+    return () => {
+      if (diffEditorRef.current) {
+        diffEditorRef.current.dispose()
+        diffEditorRef.current = null
+      }
+      if (syncCleanupRef.current) {
+        syncCleanupRef.current()
+        syncCleanupRef.current = null
+      }
+    }
+  }, [])
 
   const handleToggleSyncScroll = () => {
     setSyncScroll(!syncScroll)
@@ -235,10 +263,11 @@ export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57
             fontSize: 14,
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
           }}
-          onMount={(editor) => {
+          onMount={(editor: monaco.editor.IStandaloneDiffEditor) => {
+            diffEditorRef.current = editor
             originalEditorRef.current = editor.getOriginalEditor()
             revisedEditorRef.current = editor.getModifiedEditor()
-            setupSyncScroll(originalEditorRef.current, revisedEditorRef.current)
+            setupSyncScroll(originalEditorRef.current, revisedEditorRef.current, editor)
           }}
         />
       </div>

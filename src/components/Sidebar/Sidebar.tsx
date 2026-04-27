@@ -6,8 +6,6 @@ import * as Select from '@radix-ui/react-select'
 import { ChevronDown, RotateCcw, Settings } from 'lucide-react'
 import { useConfigStore, ConfigState } from '../../store/configStore'
 
-console.log('[Sidebar] Component loaded')
-
 interface ConfigItemProps {
   label: string
   description?: string
@@ -161,11 +159,8 @@ export const Sidebar: React.FC = () => {
   const { config, isLoading, isSyncing, error, updateConfig, resetConfig, fetchConfig } = useConfigStore()
 
   React.useEffect(() => {
-    console.log('[Sidebar] useEffect triggered, fetching config...')
     fetchConfig()
   }, [])
-
-  console.log('[Sidebar] Render state:', { isLoading, hasConfig: !!config, hasError: !!error })
 
   if (isLoading) {
     return (

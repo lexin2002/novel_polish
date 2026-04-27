@@ -9,7 +9,7 @@ test.describe('Sidebar Configuration Tests', () => {
 
   test('should switch to config tab and show sidebar container', async ({ page }) => {
     // Click config tab
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
 
     // Wait for sidebar area to appear (sidebar container is always rendered when config tab active)
     await page.waitForTimeout(500)
@@ -20,16 +20,16 @@ test.describe('Sidebar Configuration Tests', () => {
   })
 
   test('should display config cockpit title in sidebar header', async ({ page }) => {
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
     await page.waitForTimeout(500)
 
     // Should show config cockpit header text
-    const headerText = page.locator('aside h2:has-text("配置驾驶舱")')
+    const headerText = page.locator('aside h2:has-text("系统设置")')
     await expect(headerText).toBeVisible()
   })
 
   test('should show loading or error state when backend unavailable', async ({ page }) => {
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
     await page.waitForTimeout(500)
 
     // Should show either loading spinner OR error message OR config content
@@ -39,7 +39,7 @@ test.describe('Sidebar Configuration Tests', () => {
   })
 
   test('should display accordion headers for config sections', async ({ page }) => {
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
     await page.waitForTimeout(500)
 
     // When backend is unavailable, sidebar shows error message instead of accordion
@@ -49,7 +49,7 @@ test.describe('Sidebar Configuration Tests', () => {
   })
 
   test('should expand accordion section when clicked', async ({ page }) => {
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
     await page.waitForTimeout(500)
 
     // When backend is unavailable, accordion may not be fully rendered
@@ -59,7 +59,7 @@ test.describe('Sidebar Configuration Tests', () => {
   })
 
   test('should have reset button in sidebar header', async ({ page }) => {
-    await page.click('nav button:has-text("配置驾驶舱")')
+    await page.click('nav button:has-text("系统设置")')
     await page.waitForTimeout(500)
 
     // Reset button should be visible in sidebar header

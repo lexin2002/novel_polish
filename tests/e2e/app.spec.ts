@@ -25,7 +25,7 @@ test.describe('NovelPolish E2E Tests', () => {
     await expect(page.locator('nav button:has-text("润色工作台")')).toBeVisible()
     await expect(page.locator('nav button:has-text("规则配置中心")')).toBeVisible()
     await expect(page.locator('nav button:has-text("历史档案馆")')).toBeVisible()
-    await expect(page.locator('nav button:has-text("配置驾驶舱")')).toBeVisible()
+    await expect(page.locator('nav button:has-text("系统设置")')).toBeVisible()
   })
 
   test('should switch tabs correctly', async ({ page }) => {
@@ -37,8 +37,8 @@ test.describe('NovelPolish E2E Tests', () => {
     await expect(page.locator('main h2:has-text("历史档案馆")')).toBeVisible()
 
     // Test Config tab
-    await page.click('nav button:has-text("配置驾驶舱")')
-    await expect(page.locator('main h2:has-text("配置驾驶舱")')).toBeVisible()
+    await page.click('nav button:has-text("系统设置")')
+    await expect(page.locator('main h2:has-text("系统设置")')).toBeVisible()
 
     // Back to Polish tab
     await page.click('nav button:has-text("润色工作台")')
