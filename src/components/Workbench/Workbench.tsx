@@ -2,12 +2,8 @@ import * as React from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 import type * as monaco from 'monaco-editor'
 import { Play, Square, Link, Link2Off, FileText } from 'lucide-react'
-import { useWebSocket } from '../../hooks/useWebSocket'
+import { useSharedWebSocket } from '../../contexts/WebSocketContext'
 import { ProgressBar } from '../shared/ProgressBar'
-
-interface WorkbenchProps {
-  wsUrl?: string
-}
 
 const SAMPLE_ORIGINAL = `这是一个用于测试润色功能的小说文本。
 
@@ -67,17 +63,14 @@ const ControlBar: React.FC<ControlBarProps> = ({
   </div>
 )
 
-export const Workbench: React.FC<WorkbenchProps> = ({ wsUrl = 'ws://localhost:57621/ws/logs' }) => {
+export const Workbench: React.FC = () => {
   const [originalText, setOriginalText] = React.useState(SAMPLE_ORIGINAL)
   const [revisedText, setRevisedText] = React.useState('')
   const [isRunning, setIsRunning] = React.useState(false)
   const [syncScroll, setSyncScroll] = React.useState(true)
   const abortControllerRef = React.useRef<AbortController | null>(null)
 
-  const { progress } = useWebSocket({
-    url: wsUrl,
-    maxLogs: 100,
-  })
+  const { progress } = useSharedWebSocket()
 
   // Monaco editor refs for sync scroll
   const originalEditorRef = React.useRef<unknown>(null)

@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar'
 import { RuleEditor } from './components/RuleEditor'
 import { LogPanel } from './components/LogPanel'
 import { Workbench } from './components/Workbench'
+import { WebSocketProvider } from './contexts/WebSocketContext'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
 
@@ -56,6 +57,7 @@ function App() {
   }
 
   return (
+    <WebSocketProvider>
     <div className="min-h-screen bg-background flex">
       {/* Left Sidebar - Config Cockpit (always mounted, hidden via CSS) */}
       <div className={activeTab === 'config' ? '' : 'hidden'}>
@@ -135,6 +137,7 @@ function App() {
         </footer>
       </div>
     </div>
+    </WebSocketProvider>
   )
 }
 

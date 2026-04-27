@@ -1,11 +1,8 @@
 import * as React from 'react'
 import { Pause, Play, Trash2, Wifi, WifiOff } from 'lucide-react'
-import { useWebSocket, LogEntry } from '../../hooks/useWebSocket'
+import { LogEntry } from '../../hooks/useWebSocket'
+import { useSharedWebSocket } from '../../contexts/WebSocketContext'
 import { ProgressBar } from '../shared/ProgressBar'
-
-interface LogPanelProps {
-  url?: string
-}
 
 const LOG_LEVEL_CLASSES: Record<LogEntry['level'], string> = {
   INFO: 'text-gray-900',
@@ -30,7 +27,7 @@ const LogLine: React.FC<LogLineProps> = ({ entry }) => (
   </div>
 )
 
-export const LogPanel: React.FC<LogPanelProps> = ({ url = 'ws://localhost:57621/ws/logs' }) => {
+export const LogPanel: React.FC = () => {
   const {
     logs,
     progress,
@@ -39,7 +36,7 @@ export const LogPanel: React.FC<LogPanelProps> = ({ url = 'ws://localhost:57621/
     error,
     clearLogs,
     setPaused,
-  } = useWebSocket({ url, maxLogs: 2000 })
+  } = useSharedWebSocket()
 
   const logsEndRef = React.useRef<HTMLDivElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
