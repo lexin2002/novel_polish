@@ -32,6 +32,11 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Verify backend entry exists
+        run: |
+          if not exist backend\app\main.py (exit /b 1)
+          echo Backend entry found: backend\app\main.py
+
       - name: Build Python backend with PyInstaller
         run: |
           cd backend
