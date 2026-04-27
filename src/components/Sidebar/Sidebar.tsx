@@ -114,48 +114,6 @@ const ProviderSelector: React.FC<{
   </ConfigItem>
 )
 
-// Model selector - shows models from active provider
-const ModelSelector: React.FC<{
-  value: string
-  models: string[]
-  onChange: (model: string) => void
-}> = ({ value, models, onChange }) => (
-  <ConfigItem label="模型">
-    <Select.Root value={value} onValueChange={onChange}>
-      <Select.Trigger
-        className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-border rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
-        aria-label="选择模型"
-      >
-        <Select.Value />
-        <Select.Icon>
-          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Content className="overflow-hidden bg-white border border-border rounded-md shadow-lg z-50">
-          <Select.Viewport className="p-1">
-            {models.length > 0 ? (
-              models.map((model) => (
-                <Select.Item
-                  key={model}
-                  value={model}
-                  className="relative flex items-center px-8 py-2 text-sm rounded-md cursor-pointer hover:bg-secondary data-[highlighted]:bg-secondary outline-none"
-                >
-                  <Select.ItemText>{model}</Select.ItemText>
-                </Select.Item>
-              ))
-            ) : (
-              <Select.Item value="custom" className="relative flex items-center px-8 py-2 text-sm text-muted-foreground cursor-pointer">
-                <Select.ItemText>无可用模型</Select.ItemText>
-              </Select.Item>
-            )}
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
-  </ConfigItem>
-)
-
 interface NumberItemProps {
   label: string
   value: number
@@ -256,11 +214,15 @@ export const Sidebar: React.FC = () => {
 
   if (!config) return null
 
+  // Deep clone to avoid mutation issues
+  const deepClone = <T,>(obj: T): T => JSON.parse(JSON.stringify(obj))
+
   const update = (path: string[], value: unknown) => {
-    const patch = { ...config }
-    let current: Record<string, unknown> = patch as Record<string, unknown>
+    const patch = deepClone(config)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let current: any = patch
     for (let i = 0; i < path.length - 1; i++) {
-      current = current[path[i]] as Record<string, unknown>
+      current = current[path[i]]
     }
     current[path[path.length - 1]] = value
     useConfigStore.getState().updateConfig(patch as Partial<ConfigState>)
@@ -343,21 +305,33 @@ export const Sidebar: React.FC = () => {
                     placeholder="https://..."
                     onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'base_url'], v)}
                   />
-                  {active.models.length > 0 && (
-                    <ModelSelector
-                      value={active.active_model}
-                      models={active.models}
-                      onChange={(model) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], model)}
-                    />
-                  )}
+                  {/* Custom provider name editing */}
                   {config.llm.active_provider === 'custom' && (
                     <TextItem
-                      label="自定义模型"
-                      value={active.active_model}
-                      placeholder="e.g. gpt-4, claude-3-sonnet"
-                      onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], v)}
+                      label="提供商名称"
+                      value={active.name}
+                      placeholder="e.g. 我的模型"
+                      onChange={(v) => update(['llm', 'providers', config.llm.active_provider, 'name'], v)}
                     />
                   )}
+                  {/* Model selector - allow custom input for all providers */}
+                  <ConfigItem label="模型">
+                    <input
+                      type="text"
+                      value={active.active_model}
+                      placeholder={active.models.length > 0 ? "从下拉选择或直接输入" : "直接输入模型名称"}
+                      onChange={(e) => update(['llm', 'providers', config.llm.active_provider, 'active_model'], e.target.value)}
+                      list={active.models.length > 0 ? `models-list-${config.llm.active_provider}` : undefined}
+                      className="w-full px-3 py-2 text-sm bg-white border border-border rounded-md hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    {active.models.length > 0 && (
+                      <datalist id={`models-list-${config.llm.active_provider}`}>
+                        {active.models.map((model) => (
+                          <option key={model} value={model} />
+                        ))}
+                      </datalist>
+                    )}
+                  </ConfigItem>
 
                   {/* Test Connection Button */}
                   <div className="mt-3">
