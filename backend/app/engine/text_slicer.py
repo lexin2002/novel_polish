@@ -218,6 +218,23 @@ class TextSlicer:
 
         return chunks
 
+    @staticmethod
+    def _find_content_boundary(original_content: str, modified_text: str) -> int:
+        """Find where original_content starts within modified_text using multiple prefix lengths.
+
+        Tries progressively shorter prefixes (20, 15, 10, 5 chars) to handle cases
+        where the LLM has modified the beginning of the content.
+        Returns the position found, or -1 if not found.
+        """
+        for prefix_len in [20, 15, 10, 5]:
+            if prefix_len > len(original_content):
+                continue
+            prefix = original_content[:prefix_len]
+            pos = modified_text.find(prefix)
+            if pos >= 0:
+                return pos
+        return -1
+
     def strip_context(self, chunk: Chunk, modified_text: str) -> str:
         """
         Strip the context portion from modified text.
@@ -236,24 +253,15 @@ class TextSlicer:
         if not chunk.has_context:
             return modified_text
 
-        # Find where the actual content starts
-        # Look for the first occurrence of chunk.content within modified_text
-        # This handles cases where LLM may have slightly modified words at boundary
-
         # Calculate expected content length
         content_length = chunk.content_end - chunk.content_start
 
         # If modified text is longer than expected content, context was added
         if len(modified_text) > content_length:
-            # Try to find the boundary by looking for the pattern at content boundary
-            # Look for sentence delimiter near where context should end
-
-            # Find where chunk.content starts in modified_text
-            content_start_in_modified = modified_text.find(chunk.content[:10])
-
-            if content_start_in_modified >= 0:
-                # The actual content starts at content_start_in_modified
-                return modified_text[content_start_in_modified:content_start_in_modified + content_length]
+            pos = self._find_content_boundary(chunk.content, modified_text)
+            if pos >= 0:
+                # The actual content starts at `pos`
+                return modified_text[pos:pos + content_length]
 
         # If we can't find boundary, just return the content portion
         return modified_text[:content_length]
