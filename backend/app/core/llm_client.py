@@ -198,7 +198,12 @@ class LLMClient:
         max_tokens: int,
     ) -> LLMResponse:
         # Google AI Studio format: /v1beta/models/{model}:generateContent?key={api_key}
-        url = f"{self.base_url.rstrip('/')}/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        # Ensure the model name is prefixed with 'models/' if not already present
+        model_name = self.model
+        if not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
+            
+        url = f"{self.base_url.rstrip('/')}/v1beta/{model_name}:generateContent?key={self.api_key}"
         
         # Convert messages to Google format
         contents = []
