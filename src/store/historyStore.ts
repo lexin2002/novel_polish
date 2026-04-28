@@ -23,8 +23,9 @@ interface HistoryState {
 
   fetchSnapshots: (limit?: number) => Promise<void>
   fetchSnapshotDetail: (id: number) => Promise<void>
-  deleteSnapshot: (id: number) => Promise<void>
-  clearSelection: () => void
+    deleteSnapshot: (id: number) => Promise<void>
+    rollbackSnapshot: (id: number) => Promise<void>
+    clearSelection: () => void
 }
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
@@ -60,6 +61,15 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       set({ snapshots: snapshots.filter(s => s.id !== id) })
     } catch (err) {
       console.error('Failed to delete snapshot:', err)
+      throw err
+    }
+  },
+
+  rollbackSnapshot: async (id: number) => {
+    try {
+      await axios.post(`http://localhost:57621/api/history/rollback/${id}`)
+    } catch (err) {
+      console.error('Failed to rollback snapshot:', err)
       throw err
     }
   },

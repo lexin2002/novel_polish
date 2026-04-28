@@ -32,33 +32,37 @@ async def initialize_polishing_service() -> None:
     Closes the previous client if it exists.
     """
     global _polishing_service
+    logger.info("!!! [INIT] Starting initialize_polishing_service...")
     
     # 1. Close old client to prevent leaks
     if _polishing_service and _polishing_service.llm_client:
         try:
             await _polishing_service.llm_client.close()
+            logger.info("!!! [INIT] Closed old LLM client")
         except Exception as e:
             logger.warning(f"Error closing old LLM client during refresh: {e}")
-
+    
     # 2. Read current config
     manager = get_config_manager()
     config = manager.read_config()
+    logger.info(f"!!! [INIT] Read config: {config.get('llm', {}).get('active_provider')}")
     llm_config = config.get("llm", {})
     providers = llm_config.get("providers", {})
     active_provider = llm_config.get("active_provider", "openai")
     active_provider_cfg = providers.get(active_provider, {})
     api_key = active_provider_cfg.get("api_key", "")
-
+    
     if not api_key:
-        logger.warning(f"No API key configured for active provider '{active_provider}' - service will be disabled")
+        logger.warning(f"!!! [INIT] No API key found for {active_provider} - aborting")
         _polishing_service = None
         return
-
+    
     # 3. Create new client and service
     from app.core.llm_client import create_llm_client
     from app.engine.polishing_service import create_polishing_service
     
     try:
+        logger.info("!!! [INIT] Creating LLM client...")
         client = await create_llm_client(
             provider=active_provider,
             api_key=api_key,
@@ -67,11 +71,14 @@ async def initialize_polishing_service() -> None:
             api_type=active_provider_cfg.get("api", "openai"),
             timeout=120.0,
         )
+        logger.info("!!! [INIT] LLM client created successfully")
+        
+        logger.info("!!! [INIT] Creating polishing service...")
         service = await create_polishing_service(client)
         set_polishing_service(service)
-        logger.info(f"Polishing service initialized: provider={active_provider}, model={active_provider_cfg.get('active_model')}")
+        logger.info(f"!!! [INIT] Polishing service set globally: provider={active_provider}")
     except Exception as e:
-        logger.error(f"Failed to initialize polishing service: {e}")
+        logger.error(f"!!! [INIT] FAILED to initialize polishing service: {e}", exc_info=True)
         _polishing_service = None
 
 
@@ -164,8 +171,8 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
         )
         result = await client.test_connection()
         
-        # IMPORTANT: If connection is OK, refresh the global service instance
-        # to avoid needing a backend restart to apply the new API key.
+        # IMPORTANT: Even if connection is not fully verified, refresh the global service instance
+        # so we can test the pipeline with our mock client.
         await initialize_polishing_service()
         
         return {"ok": True, "model": result["model"], "response": result.get("response", "OK")}
@@ -202,6 +209,34 @@ async def post_rules(rules: Dict[str, Any]) -> Dict[str, Any]:
     manager.write_rules(rules)
     return {"status": "ok", "message": "Rules updated successfully"}
 
+
+@router.post("/api/history/rollback/{snapshot_id}")
+async def rollback_to_snapshot(snapshot_id: int) -> Dict[str, Any]:
+    """Rollback system config and rules to a specific snapshot state"""
+    db = get_history_db()
+    snapshot = await db.get_snapshot_by_id(snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    
+    manager = get_config_manager()
+    
+    # 1. Rollback config
+    config_snapshot = snapshot.get("config_snapshot", {})
+    if config_snapshot:
+        # Merge with current config to avoid erasing other sections (like 'ui' or 'engine')
+        current_config = manager.read_config()
+        updated_config = {**current_config, **config_snapshot}
+        manager.write_config(updated_config)
+    
+    # 2. Rollback rules
+    rules_snapshot = snapshot.get("rules_snapshot", {})
+    if rules_snapshot:
+        manager.write_rules(rules_snapshot)
+    
+    # 3. Refresh the active service instance
+    await initialize_polishing_service()
+    
+    return {"status": "ok", "message": f"Successfully rolled back to snapshot {snapshot_id}"}
 
 @router.get("/api/history")
 async def get_history(limit: int = 20) -> List[Dict[str, Any]]:
@@ -259,8 +294,12 @@ async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
     logger.info(f"!!! [REST] Service instance: {service} (Type: {type(service)})")
     
     if service is None:
-        logger.error("!!! [REST] Service is None!")
-        raise HTTPException(status_code=503, detail="Polishing service not initialized")
+        logger.info("!!! [REST] Service is None, attempting emergency initialization...")
+        await initialize_polishing_service()
+        service = get_polishing_service()
+        if service is None:
+            logger.error("!!! [REST] Emergency initialization failed!")
+            raise HTTPException(status_code=503, detail="Polishing service not initialized")
     
     config = get_config_manager().read_config()
     rules = get_config_manager().read_rules()

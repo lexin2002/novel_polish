@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from app.core.config_manager import get_config_manager
-from app.core.rate_limiter import AsyncTokenBucket
-from app.engine.prompt_builder import PromptBuilder, create_prompt_builder
+from app.core.rate_limiter import AsyncTokenBucket, CircuitBreaker
+from app.engine.prompt_builder import create_prompt_builder
 from app.engine.text_slicer import TextSlicer, Chunk, create_slicer
+from app.engine.text_masker import create_text_masker
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,10 @@ class PolishingService:
             max_chunk_size=self.engine_config.get("chunk_size", 1000),
             context_overlap=self.engine_config.get("context_overlap_chars", 200),
         )
+        # Create text masker for sensitive content
+        self.masker = create_text_masker(
+            sensitive_words=self.engine_config.get("sensitive_words", [])
+        )
         # Max workers for parallel chunk processing
         self.max_workers = self.engine_config.get("max_workers", 3)
         
@@ -97,17 +102,21 @@ class PolishingService:
 
     async def polish_text(self, request: PolishRequest) -> PolishResult:
         """
-        Polish fiction text using LLM.
+        Polish fiction text using LLM with masking and isolation.
         """
         logger.info(f"!!! [DEBUG] polish_text entered. Text length: {len(request.text)}")
         
-        # Slice text into chunks
-        chunks = self.text_slicer.split_into_chunks(request.text)
+        # 1. Mask sensitive content
+        masked_text, mask_map = self.masker.mask(request.text)
+        if mask_map:
+            logger.info(f"Masked {len(mask_map)} sensitive terms.")
+
+        # 2. Slice masked text into chunks
+        chunks = self.text_slicer.split_into_chunks(masked_text)
         logger.info(f"!!! [DEBUG] Slicing complete. Produced {len(chunks)} chunks.")
         
         if not chunks:
             logger.error("!!! [DEBUG] CRITICAL: TextSlicer produced ZERO chunks!")
-            # Return original text if no chunks produced
             return PolishResult(
                 original_text=request.text,
                 polished_text=request.text,
@@ -116,32 +125,23 @@ class PolishingService:
                 total_tokens=0,
             )
 
-        # Process chunks
+        # 3. Process chunks
         chunk_results = await self._process_chunks_parallel(chunks, request)
         
-        # Reassemble polished text
-        polished_parts = []
-        all_modifications = []
-        total_tokens = 0
-        failed_chunks = []
-        
-        for result in chunk_results:
-            polished_parts.append(result.polished_content)
-            all_modifications.extend(result.modifications)
-            total_tokens += result.tokens_used
-            if result.failed:
-                failed_chunks.append(result.chunk_index)
-        
+        # 4. Reassemble and unmask
         polished_text = self.text_slicer.reassemble_chunks(chunks, [r.polished_content for r in chunk_results])
+        final_text = self.masker.unmask(polished_text, mask_map)
         
-        if failed_chunks:
-            logger.warning(f"Chunks failed: {failed_chunks}")
+        total_tokens = sum(r.tokens_used for r in chunk_results)
+        all_modifications = []
+        for r in chunk_results:
+            all_modifications.extend(r.modifications)
         
-        logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens, failed: {len(failed_chunks)}")
+        logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens")
         
         return PolishResult(
             original_text=request.text,
-            polished_text=polished_text,
+            polished_text=final_text,
             modifications=all_modifications,
             chunks_processed=len(chunks),
             total_tokens=total_tokens,

@@ -1,18 +1,19 @@
 import React, { useEffect } from 'react'
 import { useHistoryStore } from '@/store/historyStore'
-import { Trash2, FileText, Clock, AlertCircle } from 'lucide-react'
+import { Trash2, FileText, Clock, AlertCircle, RotateCcw } from 'lucide-react'
 
 export const Archive: React.FC = () => {
-  const { 
-    snapshots, 
-    selectedSnapshot, 
-    isLoading, 
-    error, 
-    fetchSnapshots, 
-    fetchSnapshotDetail, 
-    deleteSnapshot, 
-    clearSelection 
-  } = useHistoryStore()
+    const { 
+      snapshots, 
+      selectedSnapshot, 
+      isLoading, 
+      error, 
+      fetchSnapshots, 
+      fetchSnapshotDetail, 
+      deleteSnapshot, 
+      rollbackSnapshot,
+      clearSelection 
+    } = useHistoryStore()
 
   useEffect(() => {
     fetchSnapshots()
@@ -102,26 +103,42 @@ export const Archive: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button 
-                  onClick={clearSelection}
-                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50 transition-colors"
-                >
-                  关闭
-                </button>
-                <button 
-                  onClick={async () => {
-                    if (confirm('确定要删除此记录吗？')) {
-                      await deleteSnapshot(selectedSnapshot.id)
-                      clearSelection()
-                    }
-                  }}
-                  className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 transition-colors flex items-center gap-1"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  删除
-                </button>
-              </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={clearSelection}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50 transition-colors"
+                  >
+                    关闭
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (confirm('确定要将当前配置和规则回滚到此快照状态吗？')) {
+                        try {
+                          await rollbackSnapshot(selectedSnapshot.id)
+                          alert('回滚成功！当前设置已更新。')
+                        } catch (e) {
+                          alert('回滚失败: ' + (e instanceof Error ? e.message : '未知错误'))
+                        }
+                      }
+                    }}
+                    className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    回滚
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (confirm('确定要删除此记录吗？')) {
+                        await deleteSnapshot(selectedSnapshot.id)
+                        clearSelection()
+                      }
+                    }}
+                    className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 transition-colors flex items-center gap-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    删除
+                  </button>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
