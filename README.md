@@ -95,25 +95,22 @@ cd backend && pip install -r requirements.txt
 
 ⚠️ **必须同时启动前端和后端**，两个服务都需要运行（Vite 会自动代理 `/api` 和 `/ws` 到后端）
 
-```bash`
+```bash
 # 终端1：启动前端 (Vite dev server，默认 http://localhost:5173)
-npm run dev`
+npm run dev
 
 # 终端2：启动后端 (FastAPI，端口 57621，开发模式建议加 --reload)
-cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621 --reload`
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621 --reload
 ```
 
 ### 运行测试
 
-⚠️ **当前状态**：E2E 测试目录 `tests/e2e/` 不存在，后端测试目录 `backend/tests/` 已删除。
-如需测试功能，需要重新创建测试文件。
-
 ```bash
-# 前端 E2E 测试（需要创建 tests/e2e/ 目录和测试文件）
-npm test  # 或 npx playwright test tests/e2e/
-
-# 后端单元测试（需要恢复 backend/tests/ 目录）
+# 后端单元测试（46 个测试覆盖 Config/规则/Prompt/文本切片）
 cd backend && pytest tests/ -v --cov=app
+
+# 前端 E2E 测试（需要先创建 tests/e2e/ 目录）
+npm test  # 或 npx playwright test tests/e2e/
 ```
 
 ## API 端点
@@ -312,15 +309,12 @@ interface MainCategory {
 
 ### 测试
 
-⚠️ **当前状态**：E2E测试目录 `tests/e2e/` 不存在，后端测试目录 `backend/tests/` 已删除。
-如需测试功能，需要重新创建测试文件。
-
 ```bash
-# 前端 E2E 测试（需要创建 tests/e2e/ 目录和测试文件）
-npm test  # 或 npx playwright test tests/e2e/
-
-# 后端单元测试（需要恢复 backend/tests/ 目录）
+# 后端单元测试（46 个测试）
 cd backend && pytest tests/ -v --cov=app
+
+# 前端 E2E 测试（需要先创建 tests/e2e/ 目录）
+npm test  # 或 npx playwright test tests/e2e/
 ```
 
 ## 构建发布
