@@ -83,17 +83,30 @@ class LLMClient:
             if not self.model.startswith("gemini-"):
                 logger.warning(f"[LLMClient] Google AI model should start with 'gemini-'. Current: {self.model}")
 
+    def _normalize_url(self, endpoint: str) -> str:
+        """Ensure base_url and endpoint are combined correctly with protocol-specific paths"""
+        url = self.base_url.rstrip('/')
+        
+        # Protocol-specific path overrides
+        if self.api_type == "openai" and "/v1" not in url:
+            url += "/v1"
+        elif self.api_type == "anthropic" and "/v1" not in url:
+            url += "/v1"
+            
+        return f"{url}/{endpoint.lstrip('/')}"
+
     async def get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             async with self._client_lock:
                 if self._client is None:
+                    # Google AI API uses ?key=API_KEY instead of Bearer token
+                    headers = {"Content-Type": "application/json"}
+                    if self.api_type != "google":
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+                    
                     self._client = httpx.AsyncClient(
-                        base_url=self.base_url,
                         timeout=self.timeout,
-                        headers={
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Content-Type": "application/json",
-                        },
+                        headers=headers,
                     )
         return self._client
 
@@ -120,6 +133,10 @@ class LLMClient:
             return await self.circuit_breaker.call(
                 self._anthropic_chat, messages, temperature, max_tokens
             )
+        elif self.api_type == "google":
+            return await self.circuit_breaker.call(
+                self._google_chat, messages, temperature, max_tokens
+            )
         else:
             return await self.circuit_breaker.call(
                 self._openai_compatible_chat, messages, temperature, max_tokens
@@ -138,11 +155,12 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
-        logger.info(f"[LLMClient] {self.provider} request: model={self.model}, messages={len(messages)}")
+        logger.info(f"[LLMClient] {self.provider} (OpenAI) request: model={self.model}, messages={len(messages)}")
 
         try:
             client = await self.get_client()
-            response = await client.post("/chat/completions", json=payload)
+            url = self._normalize_url("chat/completions")
+            response = await client.post(url, json=payload)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             error_detail = ""
@@ -151,7 +169,6 @@ class LLMClient:
                 error_detail = error_json.get("error", {}).get("message", e.response.text[:200])
             except Exception:
                 error_detail = e.response.text[:200]
-
             if e.response.status_code == 401:
                 raise LLMConnectionError(f"Auth failed (401): {error_detail}")
             elif e.response.status_code == 403:
@@ -166,12 +183,6 @@ class LLMClient:
             raise LLMConnectionError(f"Network failure: {str(e)}")
 
         data = response.json()
-        # --- DEBUG: Simulate DeepSeek Reasoner (R1) response ---
-        if "reasoner" in self.model:
-            data["choices"][0]["message"]["content"] = None
-            data["choices"][0]["message"]["reasoning_content"] = "Thinking..."
-            data["choices"][0]["message"]["content"] = "Simulated Reasoned Result"
-        # -------------------------------------------------------
         usage = data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
@@ -188,6 +199,57 @@ class LLMClient:
             raise LLMConnectionError("API returned empty content")
             
         return LLMResponse(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
+
+    async def _google_chat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        # Google AI Studio format: /v1beta/models/{model}:generateContent?key={api_key}
+        url = f"{self.base_url.rstrip('/')}/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        
+        # Convert messages to Google format
+        contents = []
+        for msg in messages:
+            if msg["role"] == "user":
+                contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+            elif msg["role"] == "assistant":
+                contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
+        
+        payload = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            }
+        }
+        
+        logger.info(f"[LLMClient] {self.provider} (Google) request: model={self.model}")
+        try:
+            client = await self.get_client()
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract content from Google response
+            candidates = data.get("candidates", [])
+            if not candidates:
+                raise LLMConnectionError("Google API returned no candidates")
+            
+            content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if not content:
+                raise LLMConnectionError("Google API returned empty content")
+                
+            # Google tokens are in usageMetadata
+            usage = data.get("usageMetadata", {})
+            return LLMResponse(
+                content=content,
+                input_tokens=usage.get("promptTokenCount", 0),
+                output_tokens=usage.get("candidatesTokenCount", 0)
+            )
+        except Exception as e:
+            raise LLMConnectionError(f"Google API Error: {str(e)}")
 
     async def _anthropic_chat(
         self,
