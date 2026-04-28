@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-04-28
+
+### Added
+
+#### E2E Testing
+- **Playwright E2E test suite** (35 tests) — Full UI interaction coverage:
+  - `app.spec.ts` (8): Navigation between 4 tabs, log panel toggle/pause/clear
+  - `workbench.spec.ts` (4): Polish controls, sync scroll toggle, file import, Monaco editor loading
+  - `ruleEditor.spec.ts` (12): Category/SubCategory/Rule CRUD, priority selection validation
+  - `sidebar.spec.ts` (11): LLM provider switching, API key input, engine/network/UI config
+- `playwright.config.ts` — Auto-starts Vite dev server + FastAPI backend, Chromium-only
+
+#### Documentation
+- `docs/API.md` — Complete rewrite: all endpoint response structures corrected to match actual code
+- `README.md` — API table expanded with missing endpoints; env requirements updated
+- `AGENTS.md` — Fixed 5 out-of-date statements (removed dead script/config refs)
+- `.env.example` — Reduced to only PORT/HOST; LLM config is managed via `config.jsonc` UI
+
+### Fixed
+
+#### Bug: FileLock re-entrant deadlock (`config_manager.py`)
+- `read_config()` called `_atomic_write_config()` while holding the same FileLock, causing thead deadlock
+- Symptom: Backend startup delayed 21s, all config/rules API calls timed out
+- Fix: Deferred write-back to after the read lock was released
+- Effect: Backend starts in <1s, API responses in ~3ms
+
 ## [1.0.0] - 2026-04-25
 
 ### Added

@@ -28,6 +28,7 @@ A desktop-grade AI-powered novel writing assistant built with Electron + React +
 - **aiosqlite** - 异步数据库
 - **filelock** - 文件锁
 - **json5** - JSON 解析（支持注释）
+- **Playwright** - E2E 测试
 - **pytest** - 单元测试
 
 ## 项目结构
@@ -119,6 +120,9 @@ cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621 --reloa
 ### 运行测试
 
 ```bash
+# 端到端测试（35 个测试覆盖全部 4 个 Tab 页交互）
+npm test
+
 # 后端单元测试（46 个测试覆盖 Config/规则/Prompt/文本切片）
 cd backend && pytest tests/ -v --cov=app
 ```
@@ -320,6 +324,9 @@ interface MainCategory {
 ### 测试
 
 ```bash
+# 端到端测试（Playwright，35 个测试覆盖全部 Tab 页）
+npm test
+
 # 后端单元测试（46 个测试）
 cd backend && pytest tests/ -v --cov=app
 ```
