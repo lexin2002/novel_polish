@@ -3,13 +3,12 @@
 ## Dev Commands
 - Frontend: `npm run dev` → http://localhost:5173
 - Backend: `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621`
-- Utils: `MINIMAX_API_KEY=... npx tsx configure-minimax.ts` (Automates MiniMax provider setup)
 - Both required simultaneously — Vite proxies `/api` and `/ws` to backend
+- **Note**: LLM provider setup (API keys, models, etc.) is configured via the UI sidebar, NOT via `.env` file or scripts
 
 ## Verify
 - **Order**: lint → type-check → test
-- Single E2E: `npx playwright test tests/e2e/<file>.spec.ts` (Directory `tests/e2e/` does NOT exist currently)
-- Backend: `cd backend && pytest tests/ -v --cov=app` (Directory `backend/tests/` has been deleted)
+- Backend: `cd backend && pytest tests/ -v --cov=app`
 
 ## Architecture
 - **Frontend**: React 18 + Vite + Tailwind + Zustand + Radix UI + dnd-kit
@@ -22,8 +21,8 @@
 - `src/` — React frontend
 - `electron/` — Electron main/preload
 - `backend/app/` — FastAPI (api/, core/, engine/)
-- `backend/tests/` — pytest unit tests (DELETED - need to restore)
-- `tests/e2e/` — Playwright E2E tests (DOES NOT EXIST - need to create)
+- `backend/tests/` — pytest unit tests (46 tests)
+- `backend/data/` — Runtime data (history.db, logs)
 
 ### Backend Entry Points
 - `backend/app/main.py` — FastAPI app
@@ -55,7 +54,6 @@ DeepSeek, Qwen, SiliconFlow use `api: "openai"` (OpenAI-compatible)
 ## Quirks
 - Backend returns 503 if no API key configured (`/api/polish`)
 - Config uses JSON5 (supports comments)
-- E2E tests auto-start Vite via `playwright.config.ts` webServer
 - Backend tests use `pytest-asyncio` + `pytest-cov`
-- **Updated**: `backend/app/core/history_db.py` now uses absolute paths (`backend/data/`) instead of relative paths
-- **Note**: All LLM configuration (API keys, models, etc.) is managed via `config.jsonc` UI, NOT via `.env` file
+- `backend/app/core/history_db.py` uses absolute paths (`backend/data/`) instead of relative paths
+- All LLM configuration (API keys, models, etc.) is managed via `config.jsonc` UI, NOT via `.env` file
