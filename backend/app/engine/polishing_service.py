@@ -37,6 +37,7 @@ class PolishResult:
 class ChunkResult:
     """Result of processing a single chunk"""
     chunk_index: int
+    original_content: str    # Added to facilitate interactive acceptance
     polished_content: str
     modifications: List[Dict[str, str]]
     tokens_used: int
@@ -143,11 +144,14 @@ class PolishingService:
                     )
                     # Unmask the content for the frontend
                     result.polished_content = self.masker.unmask(result.polished_content, mask_map)
+                    # Set original content (unmasked)
+                    result.original_content = self.masker.unmask(chunk.content, mask_map)
                     results_buffer[index] = result
                 except Exception as e:
                     logger.error(f"!!! [STREAM] Error in chunk {index}: {e}")
                     results_buffer[index] = ChunkResult(
                         chunk_index=index,
+                        original_content=self.masker.unmask(chunk.content, mask_map),
                         polished_content=chunk.content,
                         modifications=[],
                         tokens_used=0,
@@ -295,6 +299,7 @@ class PolishingService:
 
         return ChunkResult(
             chunk_index=index,
+            original_content=content,
             polished_content=current_text,
             modifications=all_mods,
             tokens_used=total_tokens,

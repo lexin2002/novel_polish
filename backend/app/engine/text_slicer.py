@@ -55,6 +55,7 @@ class TextSlicer:
     def split_into_chunks(self, text: str) -> List[Chunk]:
         """
         Split text into chunks using paragraph-first logic and semantic snapping.
+        Ensures chunks end at natural sentence boundaries.
         """
         if not text: return []
 
@@ -64,7 +65,9 @@ class TextSlicer:
         current_len = 0
         
         for p in paragraphs:
+            # Handle very long paragraphs that exceed max_chunk_size
             if len(p) > self.max_chunk_size:
+                # First, flush the current accumulated chunk
                 if current_chunk_text:
                     chunks_data.append("\n".join(current_chunk_text))
                     current_chunk_text = []
@@ -72,12 +75,16 @@ class TextSlicer:
                 
                 p_pos = 0
                 while p_pos < len(p):
+                    # Try to find a natural break point near max_chunk_size
                     end = p_pos + self.max_chunk_size
                     if end >= len(p):
                         chunks_data.append(p[p_pos:])
                         p_pos = len(p)
                     else:
-                        search_area = p[p_pos:end]
+                        # Search backwards from 'end' to find the nearest delimiter
+                        # Look back up to 15% of max_chunk_size to find a boundary
+                        search_start = max(p_pos, end - int(self.max_chunk_size * 0.15))
+                        search_area = p[search_start:end]
                         last_punc = -1
                         for i in range(len(search_area)-1, -1, -1):
                             if search_area[i] in self.sentence_delimiters:
@@ -85,12 +92,15 @@ class TextSlicer:
                                 break
                         
                         if last_punc != -1:
-                            chunks_data.append(p[p_pos : p_pos + last_punc + 1])
-                            p_pos += last_punc + 1
+                            split_point = search_start + last_punc + 1
+                            chunks_data.append(p[p_pos : split_point])
+                            p_pos = split_point
                         else:
+                            # No boundary found, force split at end
                             chunks_data.append(p[p_pos:end])
                             p_pos = end
             else:
+                # Accumulate paragraphs until max_chunk_size is reached
                 if current_len + len(p) + 1 > self.max_chunk_size:
                     chunks_data.append("\n".join(current_chunk_text))
                     current_chunk_text = [p]
@@ -113,6 +123,7 @@ class TextSlicer:
             context_text = ""
             has_context = False
             if i > 0:
+                # Context overlap: find a natural boundary to the left of content_start
                 raw_context_start = max(0, content_start - self.context_overlap)
                 snapped_start = self._snap_left(text, raw_context_start)
                 context_text = text[snapped_start : content_start]
@@ -128,7 +139,8 @@ class TextSlicer:
                 has_context=has_context,
                 raw_text=text,
             ))
-            global_pos = content_end + 1
+            # Account for the newline used in splitting paragraphs
+            global_pos = content_end + (1 if content_end < len(text) else 0)
             
         return chunks
 
