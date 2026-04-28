@@ -43,35 +43,49 @@ novel_polish/
 │   │   ├── core/
 │   │   │   ├── config_manager.py  # 配置管理（原子写入、多提供商）
 │   │   │   ├── history_db.py      # 历史数据库（数据在 backend/data/）
-│   │   │   ├── rate_limiter.py     # 限流器
-│   │   │   ├── llm_client.py       # 统一 LLM 客户端（OpenAI/Anthropic）
-│   │   │   └── config.py           # 配置常量
-│   │   └── main.py             # 应用入口
-│   └── requirements.txt          # Python 依赖清单
+│   │   │   ├── llm_client.py      # 统一 LLM 客户端（OpenAI/Anthropic）
+│   │   │   ├── rate_limiter.py    # 限流器
+│   │   │   └── config.py          # 配置常量
+│   │   ├── engine/                 # 润色引擎
+│   │   │   ├── polishing_service.py  # 润色服务（分块+并行+LLM调用）
+│   │   │   ├── prompt_builder.py     # 提示构建（XML隔离+安全豁免）
+│   │   │   └── text_slicer.py        # 智能文本切片（标点吸附+上下文重叠）
+│   │   ├── main.py               # 应用入口
+│   │   └── __init__.py
+│   ├── tests/                   # pytest 单元测试套件（46 个测试）
+│   │   ├── test_config_manager.py
+│   │   ├── test_prompt_builder.py
+│   │   ├── test_text_slicer.py
+│   │   └── conftest.py
+│   ├── data/                    # 运行时数据（history.db + 日志）
+│   └── requirements.txt         # Python 依赖清单
 │
 ├── src/                        # React 前端源码
 │   ├── components/
-│   │   ├── RuleEditor/        # 规则配置编辑器
-│   │   ├── LogPanel/          # 实时日志面板
-│   │   ├── Sidebar/            # 配置驾驶舱（系统设置）
-│   │   ├── Workbench/          # 润色工作台
+│   │   ├── RuleEditor/        # 规则配置编辑器（拖拽排序）
+│   │   ├── LogPanel/          # 实时日志面板（WebSocket 驱动）
+│   │   ├── Sidebar/            # 配置驾驶舱（LLM/引擎/网络/UI）
+│   │   ├── Workbench/          # 润色工作台（Monaco DiffEditor）
 │   │   └── shared/             # 共享组件（ProgressBar）
 │   ├── hooks/
-│   │   └── useWebSocket.ts     # WebSocket Hook
+│   │   └── useWebSocket.ts     # WebSocket Hook（自动重连）
 │   ├── store/
-│   │   ├── configStore.ts      # 配置状态管理（多提供商）
-│   │   └── ruleStore.ts        # 规则状态管理
+│   │   ├── configStore.ts      # 配置状态管理（debounced 同步）
+│   │   └── ruleStore.ts        # 规则状态管理（CRUD + dnd-kit）
 │   ├── contexts/
 │   │   └── WebSocketContext.tsx  # WebSocket 上下文
 │   ├── App.tsx                # 主应用组件（标签页导航）
 │   └── main.tsx               # React 入口
 │
 ├── electron/                   # Electron 主进程
-│   ├── main.ts              # Electron 主进程（窗口管理、后端子进程）
-│   └── preload.ts           # 预加载脚本（暴露API）
+│   ├── main.ts              # 主进程（窗口管理 + 后端子进程）
+│   └── preload.ts           # 预加载脚本（contextBridge API）
 ├── docs/                       # 专项文档
-│   └── API.md               # API 详细文档
-└── package.json                # 前端依赖与脚本
+│   └── API.md               # 完整 API 参考（14 个端点）
+├── vite.config.ts               # Vite 构建 + Electron 插件 + API 代理
+├── package.json                 # 前端依赖与脚本
+├── tsconfig.json                # TypeScript 配置
+└── .env.example                 # 环境变量说明（仅 PORT/HOST）
 ```
 
 ## 快速开始
