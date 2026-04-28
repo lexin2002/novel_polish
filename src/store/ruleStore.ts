@@ -7,20 +7,43 @@ function generateId(): string {
 }
 
 /** Recursively assign IDs to items that are missing them */
-function ensureIds(data: RulesState): RulesState {
-  return {
-    main_categories: data.main_categories.map((cat) => ({
-      ...cat,
-      id: cat.id || generateId(),
-      sub_categories: cat.sub_categories.map((sub) => ({
-        ...sub,
-        id: sub.id || generateId(),
-        rules: sub.rules.map((rule) => ({
-          ...rule,
-          id: rule.id || generateId(),
-        })),
-      })),
-    })),
+function ensureIds(data: any): RulesState {
+  console.log('!!! [DEBUG] ensureIds input:', data);
+  if (!data) return { main_categories: [] };
+  
+  const categories = data.main_categories || data.rules || (Array.isArray(data) ? data : []);
+  if (!Array.isArray(categories)) {
+    console.error('!!! [DEBUG] categories is not an array:', categories);
+    return { main_categories: [] };
+  }
+
+  try {
+    return {
+      main_categories: categories.map((cat: any, idx: number) => {
+        console.log(`!!! [DEBUG] processing category ${idx}:`, cat);
+        return {
+          ...cat,
+          id: cat.id || generateId(),
+          sub_categories: (cat.sub_categories || []).map((sub: any, sIdx: number) => {
+            console.log(`  !!! [DEBUG] processing sub ${sIdx}:`, sub);
+            return {
+              ...sub,
+              id: sub.id || generateId(),
+              rules: (sub.rules || []).map((rule: any, rIdx: number) => {
+                console.log(`    !!! [DEBUG] processing rule ${rIdx}:`, rule);
+                return {
+                  ...rule,
+                  id: rule.id || generateId(),
+                };
+              }),
+            };
+          }),
+        };
+      }),
+    };
+  } catch (e) {
+    console.error('!!! [DEBUG] ensureIds map crash:', e);
+    return { main_categories: [] };
   }
 }
 

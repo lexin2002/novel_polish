@@ -25,7 +25,10 @@ logging.basicConfig(
     level=logging.INFO,
     format=LOG_FORMAT,
     datefmt=LOG_DATE_FORMAT,
-    stream=sys.stdout,
+    handlers=[
+        logging.FileHandler("backend_debug.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 
 logger = logging.getLogger(__name__)

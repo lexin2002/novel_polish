@@ -1,16 +1,14 @@
 import * as React from 'react'
-import { DiffEditor } from '@monaco-editor/react'
-import type * as monaco from 'monaco-editor'
 import { Play, Square, Link, Link2Off, FileText } from 'lucide-react'
 import { useSharedWebSocket } from '../../contexts/WebSocketContext'
 import { ProgressBar } from '../shared/ProgressBar'
+import { computeTextDiff } from '@/utils/diff'
 
 const SAMPLE_ORIGINAL = `这是一个用于测试润色功能的小说文本。
 
  在古老的城堡深处，年轻的骑士亚历克斯正准备踏上寻找失落剑的旅程。他的师父曾经告诉他，那把剑拥有改变世界的力量，但也伴随着巨大的危险。
 
- "记住，"师父说道，"真正的力量不在于剑本身，而在于持剑之人的心。"
-`
+ "记住，"师父说道，"真正的力量不在于剑本身，而在于持剑之人的心。"`
 
 interface ControlBarProps {
   isRunning: boolean
@@ -68,91 +66,24 @@ export const Workbench: React.FC = () => {
   const [revisedText, setRevisedText] = React.useState('')
   const [isRunning, setIsRunning] = React.useState(false)
   const [syncScroll, setSyncScroll] = React.useState(true)
+  const [diffResult, setDiffResult] = React.useState<{ originalHtml: string; modifiedHtml: string } | null>(null)
   const abortControllerRef = React.useRef<AbortController | null>(null)
 
   const { progress } = useSharedWebSocket()
+  
+  const leftScrollRef = React.useRef<HTMLDivElement>(null)
+  const rightScrollRef = React.useRef<HTMLDivElement>(null)
+  const isSyncingRef = React.useRef(false)
 
-  // Monaco editor refs for sync scroll
-  const originalEditorRef = React.useRef<unknown>(null)
-  const revisedEditorRef = React.useRef<unknown>(null)
-  const isScrollingRef = React.useRef(false)
-  const diffEditorRef = React.useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
-  const syncCleanupRef = React.useRef<(() => void) | null>(null)
-
-  // Setup sync scroll when editors mount
-  const setupSyncScroll = React.useCallback((originalEditor: unknown, revisedEditor: unknown, _diffEditor: monaco.editor.IStandaloneDiffEditor) => {
-    if (syncCleanupRef.current) {
-      syncCleanupRef.current()
-      syncCleanupRef.current = null
-    }
-    if (!originalEditor || !revisedEditor || !syncScroll) return
-
-    const originalDom = (originalEditor as { getDomNode?: () => HTMLElement }).getDomNode?.()
-    const revisedDom = (revisedEditor as { getDomNode?: () => HTMLElement }).getDomNode?.()
-
-    if (!originalDom || !revisedDom) return
-
-    const originalScrollArea = originalDom.querySelector('.monaco-scrollable-element')
-    const revisedScrollArea = revisedDom.querySelector('.monaco-scrollable-element')
-
-    if (!originalScrollArea || !revisedScrollArea) return
-
-    const syncHandler = (source: HTMLElement, target: HTMLElement) => (_e: Event) => {
-      if (isScrollingRef.current) return
-      isScrollingRef.current = true
-      const scrollTop = source.scrollTop
-      const scrollHeight = source.scrollHeight
-      const clientHeight = source.clientHeight
-      const scrollRatio = scrollTop / (scrollHeight - clientHeight)
-
-      const targetScrollHeight = target.scrollHeight
-      const targetClientHeight = target.clientHeight
-      target.scrollTop = scrollRatio * (targetScrollHeight - targetClientHeight)
-
-      setTimeout(() => {
-        isScrollingRef.current = false
-      }, 50)
-    }
-
-    const sourceEl = originalScrollArea as HTMLElement
-    const targetEl = revisedScrollArea as HTMLElement
-    const handler1 = syncHandler(sourceEl, targetEl)
-    const handler2 = syncHandler(targetEl, sourceEl)
-    sourceEl.addEventListener('scroll', handler1)
-    revisedScrollArea.addEventListener('scroll', handler2)
-
-    syncCleanupRef.current = () => {
-      sourceEl.removeEventListener('scroll', handler1)
-      revisedScrollArea.removeEventListener('scroll', handler2)
-    }
-  }, [syncScroll])
-
-  React.useEffect(() => {
-    return () => {
-      // Abort any in-flight polish request on unmount (handles StrictMode & tab switch)
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-        abortControllerRef.current = null
-      }
-      if (diffEditorRef.current) {
-        diffEditorRef.current.dispose()
-        diffEditorRef.current = null
-      }
-      // Dispose individual editors
-      if (originalEditorRef.current) {
-        (originalEditorRef.current as { dispose?: () => void })?.dispose?.()
-        originalEditorRef.current = null
-      }
-      if (revisedEditorRef.current) {
-        (revisedEditorRef.current as { dispose?: () => void })?.dispose?.()
-        revisedEditorRef.current = null
-      }
-      if (syncCleanupRef.current) {
-        syncCleanupRef.current()
-        syncCleanupRef.current = null
-      }
-    }
-  }, [])
+  const handleSyncScroll = (source: HTMLElement, target: HTMLElement) => () => {
+    if (!syncScroll || isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    
+    const scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
+    target.scrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
+    
+    setTimeout(() => { isSyncingRef.current = false; }, 50);
+  }
 
   const handleToggleSyncScroll = () => {
     setSyncScroll(!syncScroll)
@@ -160,10 +91,9 @@ export const Workbench: React.FC = () => {
 
   const handleStart = async () => {
     console.log('!!! [FRONTEND] handleStart triggered');
-    alert('handleStart triggered!');
     setIsRunning(true)
     setRevisedText('')
-    // Abort any previous controller before creating a new one
+    setDiffResult(null)
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
@@ -187,9 +117,10 @@ export const Workbench: React.FC = () => {
       }
 
       const result = await response.json()
-      setRevisedText(result.polished_text || '')
+      const polished = result.polished_text || ''
+      setRevisedText(polished)
+      setDiffResult(computeTextDiff(originalText, polished))
     } catch (err) {
-      // Ignore abort errors
       if (err instanceof Error && err.name === 'AbortError') {
         setRevisedText('已取消')
         return
@@ -212,9 +143,7 @@ export const Workbench: React.FC = () => {
   }
 
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-
   const handleLoadOriginal = () => {
-    // Open file dialog to load original text
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.txt,.md,.text'
@@ -257,30 +186,31 @@ export const Workbench: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        <DiffEditor
-          original={originalText}
-          modified={revisedText || (isRunning ? '正在润色中...' : '点击"启动润色"开始处理')}
-          language="markdown"
-          theme="light"
-          options={{
-            readOnly: true,
-            renderSideBySide: true,
-            automaticLayout: true,
-            scrollBeyondLastLine: false,
-            minimap: { enabled: false },
-            lineNumbers: 'on',
-            wordWrap: 'on',
-            fontSize: 14,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-          }}
-          onMount={(editor: monaco.editor.IStandaloneDiffEditor) => {
-            diffEditorRef.current = editor
-            originalEditorRef.current = editor.getOriginalEditor()
-            revisedEditorRef.current = editor.getModifiedEditor()
-            setupSyncScroll(originalEditorRef.current, revisedEditorRef.current, editor)
-          }}
-        />
+      <div className="flex-1 overflow-hidden flex">
+        <div 
+          ref={leftScrollRef}
+          onScroll={handleSyncScroll(leftScrollRef.current!, rightScrollRef.current!)}
+          className="flex-1 overflow-y-auto p-6 border-r border-border whitespace-pre-wrap font-serif text-lg leading-relaxed"
+        >
+          {diffResult ? (
+            <div dangerouslySetInnerHTML={{ __html: diffResult.originalHtml }} />
+          ) : (
+            <div className="outline-none" contentEditable={true} onInput={(e) => setOriginalText(e.currentTarget.innerText)}>{originalText}</div>
+          )}
+        </div>
+        <div 
+          ref={rightScrollRef}
+          onScroll={handleSyncScroll(rightScrollRef.current!, leftScrollRef.current!)}
+          className="flex-1 overflow-y-auto p-6 whitespace-pre-wrap font-serif text-lg leading-relaxed"
+        >
+          {diffResult ? (
+            <div dangerouslySetInnerHTML={{ __html: diffResult.modifiedHtml }} />
+          ) : (
+            <div className="text-gray-400 italic">
+              {revisedText || (isRunning ? '正在润色中...' : '点击"启动润色"开始处理')}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

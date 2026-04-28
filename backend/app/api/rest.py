@@ -192,9 +192,7 @@ async def get_config_path() -> Dict[str, str]:
 async def get_rules() -> Dict[str, Any]:
     """Get rules configuration"""
     manager = get_config_manager()
-    rules = manager.read_rules()
-    # Frontend expects { main_categories: [...] }
-    return {"main_categories": rules}
+    return manager.read_rules()
 
 
 @router.post("/api/rules")

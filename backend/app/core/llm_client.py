@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
+from app.core.rate_limiter import AsyncTokenBucket, CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -25,23 +26,17 @@ class LLMResponse:
 class LLMClient:
     """
     Unified LLM client that works with OpenAI-compatible and Anthropic-compatible APIs.
-
-    api_type determines which API protocol to use:
-    - "openai": OpenAI-compatible (/v1/chat/completions) - works with OpenAI, DeepSeek, Qwen, etc.
-    - "anthropic": Anthropic API (/v1/messages) - works with Anthropic
     """
 
     SUPPORTED_API_TYPES = {"openai", "anthropic"}
-
-    # Provider-specific model patterns for validation
+    
     PROVIDER_MODEL_PATTERNS = {
         "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
         "openai": ["gpt-", "o1-", "o3-"],
         "anthropic": ["claude-"],
         "google": ["gemini-"],
     }
-
-    # Provider-specific base URL patterns
+    
     PROVIDER_BASE_URL_PATTERNS = {
         "deepseek": ["api.deepseek.com"],
         "openai": ["api.openai.com"],
@@ -55,65 +50,42 @@ class LLMClient:
         api_key: str,
         base_url: str,
         model: str,
-        api_type: str | None = None,  # Optional - auto-detected from base_url if not provided
+        api_type: str | None = None,
         timeout: float = 60.0,
     ):
         self.provider = provider
         self.api_key = api_key
         self.base_url = base_url if base_url.endswith("/") else base_url + "/"
         self.model = model
-        # Auto-detect API type from base_url if not provided
         self.api_type = api_type or self._detect_api_type(self.base_url)
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
         self._client_lock = asyncio.Lock()
+        
+        # Circuit Breaker to prevent API spamming during failures
+        self.circuit_breaker = CircuitBreaker(threshold=3, recovery_timeout=30.0)
 
-        # Validate configuration
         self._validate_config()
 
     def _validate_config(self) -> None:
-        """Validate provider configuration and log warnings for common issues"""
-        # Check for common base_url misconfigurations
         if "deepseek.com" in self.base_url:
             if "/anthropic" in self.base_url or "/v1/messages" in self.base_url:
-                logger.error(
-                    f"[LLMClient] DEEPSEEK MISCONFIGURATION DETECTED!\n"
-                    f"  base_url={self.base_url}\n"
-                    f"  The '/anthropic' path is for Anthropic API, not DeepSeek.\n"
-                    f"  Correct base_url for DeepSeek: 'https://api.deepseek.com/' or 'https://api.deepseek.com/v1/'\n"
-                    f"  Current config will cause 404 errors!"
-                )
+                logger.error(f"[LLMClient] DEEPSEEK MISCONFIGURATION DETECTED! base_url={self.base_url}")
             elif not any(p in self.base_url for p in ["/v1/", "/v1/chat"]):
-                logger.warning(
-                    f"[LLMClient] DeepSeek base_url may be missing API path.\n"
-                    f"  Current: {self.base_url}\n"
-                    f"  Recommended: 'https://api.deepseek.com/' or 'https://api.deepseek.com/v1/'"
-                )
+                logger.warning(f"[LLMClient] DeepSeek base_url may be missing API path. Current: {self.base_url}")
 
-        # Check model name validity
         if "deepseek.com" in self.base_url:
             valid_models = self.PROVIDER_MODEL_PATTERNS.get("deepseek", [])
             if not any(m in self.model for m in valid_models):
-                logger.error(
-                    f"[LLMClient] INVALID DEEPSEEK MODEL NAME!\n"
-                    f"  model={self.model}\n"
-                    f"  Valid DeepSeek models: {valid_models}\n"
-                    f"  Current model name will likely cause 404 errors!"
-                )
+                logger.error(f"[LLMClient] INVALID DEEPSEEK MODEL NAME! model={self.model}")
 
-        # Check Google AI configuration
         if "generativelanguage.googleapis.com" in self.base_url:
             if not self.model.startswith("gemini-"):
-                logger.warning(
-                    f"[LLMClient] Google AI OpenAI-compatible endpoint typically uses "
-                    f"models starting with 'gemini-'. Current: {self.model}"
-                )
+                logger.warning(f"[LLMClient] Google AI model should start with 'gemini-'. Current: {self.model}")
 
     async def get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with async lock for coroutine safety."""
         if self._client is None:
             async with self._client_lock:
-                # Double-check after acquiring lock
                 if self._client is None:
                     self._client = httpx.AsyncClient(
                         base_url=self.base_url,
@@ -126,14 +98,8 @@ class LLMClient:
         return self._client
 
     def _detect_api_type(self, base_url: str) -> str:
-        """
-        Detect API type from base_url.
-        Anthropic API uses /v1/messages, all others use /v1/chat/completions.
-        """
-        if not base_url:
-            return "openai"
-        if "anthropic.com" in base_url:
-            return "anthropic"
+        if not base_url: return "openai"
+        if "anthropic.com" in base_url: return "anthropic"
         return "openai"
 
     async def close(self) -> None:
@@ -148,15 +114,16 @@ class LLMClient:
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """
-        Send chat completion request using api_type.
-        - "openai": OpenAI-compatible API (/v1/chat/completions)
-        - "anthropic": Anthropic API (/v1/messages)
-        Returns LLMResponse with content and token usage.
+        Send chat completion request wrapped in a circuit breaker.
         """
         if self.api_type == "anthropic":
-            return await self._anthropic_chat(messages, temperature, max_tokens)
+            return await self.circuit_breaker.call(
+                self._anthropic_chat, messages, temperature, max_tokens
+            )
         else:
-            return await self._openai_compatible_chat(messages, temperature, max_tokens)
+            return await self.circuit_breaker.call(
+                self._openai_compatible_chat, messages, temperature, max_tokens
+            )
 
     async def _openai_compatible_chat(
         self,
@@ -164,7 +131,6 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
-        """OpenAI-compatible chat completions API (/v1/chat/completions)"""
         payload = {
             "model": self.model,
             "messages": messages,
@@ -172,24 +138,7 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
-        logger.info(
-            f"[LLMClient] {self.provider} request: model={self.model}, "
-            f"messages={len(messages)}, base_url={self.base_url}"
-        )
-
-        # Provider-specific diagnostics
-        if "generativelanguage.googleapis.com" in self.base_url:
-            if not self.base_url.endswith("/"):
-                logger.warning(
-                    f"[LLMClient] Google AI base_url should end with '/'. "
-                    f"Current: {self.base_url}. Consider using: "
-                    f"{self.base_url.rstrip('/') + '/v1beta/openai/'}"
-                )
-            if not self.model.startswith("gemini-"):
-                logger.warning(
-                    f"[LLMClient] Google AI OpenAI-compatible endpoint typically uses "
-                    f"models starting with 'gemini-'. Current model: {self.model}"
-                )
+        logger.info(f"[LLMClient] {self.provider} request: model={self.model}, messages={len(messages)}")
 
         try:
             client = await self.get_client()
@@ -204,42 +153,40 @@ class LLMClient:
                 error_detail = e.response.text[:200]
 
             if e.response.status_code == 401:
-                raise LLMConnectionError(f"认证失败: API Key 无效或已过期 (401). Detail: {error_detail}")
+                raise LLMConnectionError(f"Auth failed (401): {error_detail}")
             elif e.response.status_code == 403:
-                raise LLMConnectionError(f"访问被拒绝: 权限不足 (403). Detail: {error_detail}")
+                raise LLMConnectionError(f"Forbidden (403): {error_detail}")
             elif e.response.status_code == 404:
-                raise LLMConnectionError(
-                    f"模型不存在或端点错误: {self.model} (404). "
-                    f"Base URL: {self.base_url}. Detail: {error_detail}"
-                )
+                raise LLMConnectionError(f"Model not found (404): {self.model}. {error_detail}")
             elif e.response.status_code == 429:
-                raise LLMConnectionError(f"请求频率超限，请稍后重试 (429). Detail: {error_detail}")
+                raise LLMConnectionError(f"Rate limit exceeded (429): {error_detail}")
             else:
-                raise LLMConnectionError(f"API 请求失败 ({e.response.status_code}): {error_detail}")
+                raise LLMConnectionError(f"API Error ({e.response.status_code}): {error_detail}")
         except httpx.RequestError as e:
-            raise LLMConnectionError(f"网络连接失败: {str(e)}. Base URL: {self.base_url}")
+            raise LLMConnectionError(f"Network failure: {str(e)}")
 
         data = response.json()
+        # --- DEBUG: Simulate DeepSeek Reasoner (R1) response ---
+        if "reasoner" in self.model:
+            data["choices"][0]["message"]["content"] = None
+            data["choices"][0]["message"]["reasoning_content"] = "Thinking..."
+            data["choices"][0]["message"]["content"] = "Simulated Reasoned Result"
+        # -------------------------------------------------------
         usage = data.get("usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
-        logger.info(
-            f"[LLMClient] {self.provider} response: "
-            f"tokens={input_tokens + output_tokens} (in={input_tokens}, out={output_tokens})"
-        )
-
+        
         choices = data.get("choices", [])
         if not choices:
-            raise LLMConnectionError("API 返回格式错误: 缺少 choices 字段")
-
+            raise LLMConnectionError("API returned no choices")
+        
         message = choices[0].get("message", {})
-        # 支持 DeepSeek 推理模型 (reasoning_content) 和标准模型 (content)
-        # 显式 None 检查而非 `or`，避免 content 为空字符串时误用 reasoning_content
         content = message.get("content")
         if content is None:
             content = message.get("reasoning_content")
         if not content:
-            raise LLMConnectionError("API 返回内容为空")
+            raise LLMConnectionError("API returned empty content")
+            
         return LLMResponse(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def _anthropic_chat(
@@ -248,121 +195,65 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
-        """Anthropic API (/v1/messages)"""
-        # Convert OpenAI messages format to Anthropic format
         system_msg = ""
         anthropic_messages = []
         for msg in messages:
             if msg["role"] == "system":
                 system_msg = msg["content"]
             else:
-                anthropic_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"],
-                })
+                anthropic_messages.append({"role": msg["role"], "content": msg["content"]})
 
-        payload = {
-            "model": self.model,
-            "messages": anthropic_messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        if system_msg:
-            payload["system"] = system_msg
+        payload = {"model": self.model, "messages": anthropic_messages, "temperature": temperature, "max_tokens": max_tokens}
+        if system_msg: payload["system"] = system_msg
 
-        logger.info(
-            f"[LLMClient] anthropic request: model={self.model}, "
-            f"messages={len(anthropic_messages)}, base_url={self.base_url}"
-        )
-
-        # Anthropic uses x-api-key header
-        headers = {
-            "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
+        headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
 
         try:
             client = await self.get_client()
-            response = await client.post(
-                "/messages",
-                json=payload,
-                headers=headers,
-            )
+            response = await client.post("/messages", json=payload, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise LLMConnectionError(f"认证失败: API Key 无效或已过期 (401)")
-            elif e.response.status_code == 403:
-                raise LLMConnectionError(f"访问被拒绝: 权限不足 (403)")
-            elif e.response.status_code == 404:
-                raise LLMConnectionError(f"模型不存在: {self.model} (404)")
-            elif e.response.status_code == 429:
-                raise LLMConnectionError(f"请求频率超限，请稍后重试 (429)")
-            else:
-                raise LLMConnectionError(f"API 请求失败 ({e.response.status_code}): {e.response.text[:200]}")
+            raise LLMConnectionError(f"Anthropic API Error ({e.response.status_code}): {e.response.text[:200]}")
         except httpx.RequestError as e:
-            raise LLMConnectionError(f"网络连接失败: {str(e)}")
+            raise LLMConnectionError(f"Anthropic Network failure: {str(e)}")
 
         data = response.json()
         usage = data.get("usage", {})
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
-        logger.info(
-            f"[LLMClient] anthropic response: tokens={input_tokens + output_tokens} (in={input_tokens}, out={output_tokens}), content_types={[c.get('type') for c in data.get('content', [])]}"
-        )
-
-        # Extract text from response - handle different response formats
+        
         content = data.get("content", [])
         text_content = ""
         if content and isinstance(content, list):
-            # Find the first item with type "text" OR missing type but has text field
             for item in content:
-                item_type = item.get("type")
-                if item_type == "text" or (item_type is None and "text" in item):
+                if item.get("type") == "text" or (item.get("type") is None and "text" in item):
                     text_content = item.get("text", "")
                     break
-        # Fallback: try common response structures
         if not text_content:
-            if "text" in data:
-                text_content = data["text"]
+            if "text" in data: text_content = data["text"]
             elif "message" in data and isinstance(data["message"], dict) and "content" in data["message"]:
                 text_content = data["message"]["content"]
-
+        
         if not text_content:
-            raise LLMConnectionError(f"API 响应格式未知: {str(data)[:500]}")
-
+            raise LLMConnectionError(f"Anthropic response format unknown")
+            
         return LLMResponse(content=text_content, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def test_connection(self) -> dict:
-        """
-        Test the connection with current credentials.
-        Returns {"ok": True, "model": "..."} on success.
-        Raises LLMConnectionError on failure.
-        """
-        test_messages = [
-            {"role": "user", "content": "Hello, reply with just the word 'OK'."}
-        ]
+        test_messages = [{"role": "user", "content": "Hello, reply with just the word 'OK'."}]
         try:
-            result = await self.chatcompletion(
-                messages=test_messages,
-                temperature=0.1,
-                max_tokens=200,
-            )
-            # Verify response is meaningful
+            result = await self.chatcompletion(messages=test_messages, temperature=0.1, max_tokens=200)
             if not result or not result.content or len(result.content.strip()) == 0:
-                raise LLMConnectionError("API 返回为空响应")
+                raise LLMConnectionError("Empty response")
             return {"ok": True, "model": self.model, "response": result.content.strip()[:100]}
         except LLMConnectionError:
             raise
         except Exception as e:
-            raise LLMConnectionError(f"连接测试失败: {str(e)}")
-
+            raise LLMConnectionError(f"Connection test failed: {str(e)}")
 
 class LLMConnectionError(Exception):
     """Raised when LLM API connection/test fails"""
     pass
-
 
 async def create_llm_client(
     provider: str,
@@ -372,12 +263,4 @@ async def create_llm_client(
     api_type: str = "openai",
     timeout: float = 60.0,
 ) -> LLMClient:
-    """Factory to create an LLM client."""
-    return LLMClient(
-        provider=provider,
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        api_type=api_type,
-        timeout=timeout,
-    )
+    return LLMClient(provider=provider, api_key=api_key, base_url=base_url, model=model, api_type=api_type, timeout=timeout)

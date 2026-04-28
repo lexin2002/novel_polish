@@ -1,134 +1,83 @@
-"""Async Token Bucket and Jitter Delay for API Rate Limiting"""
-
 import asyncio
-import logging
-import random
 import time
+import random
+import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 class AsyncTokenBucket:
     """
-    Async token bucket for rate limiting.
-
-    Attributes:
-        capacity: Maximum number of tokens in the bucket
-        fill_rate: Number of tokens added per second
-        tokens: Current number of available tokens
-        last_fill: Last time tokens were calculated (timestamp)
+    An asynchronous token bucket for rate limiting.
+    Implements the token bucket algorithm to control request rates.
     """
-
-    def __init__(
-        self,
-        capacity: int = 10,
-        fill_rate: float = 2.0,
-        initial_tokens: Optional[float] = None,
-    ):
-        """
-        Initialize the async token bucket.
-
-        Args:
-            capacity: Maximum tokens in bucket (default 10)
-            fill_rate: Tokens added per second (default 2.0)
-            initial_tokens: Starting tokens (default: capacity)
-        """
+    def __init__(self, capacity: float, fill_rate: float):
         self.capacity = capacity
         self.fill_rate = fill_rate
-        self.tokens = (
-            initial_tokens if initial_tokens is not None else capacity
-        )
+        self.tokens = capacity
         self.last_fill = time.monotonic()
         self._lock = asyncio.Lock()
 
-    async def _refill(self) -> None:
-        """Refill tokens based on elapsed time"""
-        now = time.monotonic()
-        elapsed = now - self.last_fill
-        new_tokens = elapsed * self.fill_rate
-        self.tokens = min(self.capacity, self.tokens + new_tokens)
-        self.last_fill = now
-
-    async def consume(
-        self, tokens: float = 1.0, blocking: bool = True
-    ) -> bool:
+    async def consume(self, tokens: float = 1.0):
         """
-        Consume tokens from the bucket.
-
-        Args:
-            tokens: Number of tokens to consume (default 1.0)
-            blocking: If True, wait for tokens to become available.
-                      If False, return immediately.
-
-        Returns:
-            True if tokens were consumed, False if not enough tokens
-            and blocking=False
+        Consume tokens from the bucket. If not enough tokens, wait until they are available.
         """
-        while True:
-            async with self._lock:
-                await self._refill()
+        async with self._lock:
+            while True:
+                now = time.monotonic()
+                # Fill tokens based on elapsed time
+                elapsed = now - self.last_fill
+                self.tokens = min(self.capacity, self.tokens + elapsed * self.fill_rate)
+                self.last_fill = now
 
                 if self.tokens >= tokens:
                     self.tokens -= tokens
                     return True
+                
+                # Wait for enough tokens to be filled
+                wait_time = (tokens - self.tokens) / self.fill_rate
+                await asyncio.sleep(wait_time)
 
-                if not blocking:
-                    return False
+class CircuitBreaker:
+    """
+    Circuit breaker to prevent cascading failures.
+    States: CLOSED (normal), OPEN (blocked), HALF_OPEN (testing recovery).
+    """
+    def __init__(self, threshold: int = 3, recovery_timeout: float = 30.0):
+        self.threshold = threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = "CLOSED"
+        self._lock = asyncio.Lock()
 
-                # Calculate wait time for tokens to become available
-                needed = tokens - self.tokens
-                wait_time = needed / self.fill_rate
-
-                # Log at INFO if significant delay (> 3 seconds)
-                if wait_time > 3:
-                    logger.info(f"Rate limiter: waiting {wait_time:.2f}s for tokens")
+    async def call(self, func, *args, **kwargs):
+        """
+        Execute a function wrapped in the circuit breaker.
+        """
+        async with self._lock:
+            if self.state == "OPEN":
+                if time.monotonic() - self.last_failure_time >= self.recovery_timeout:
+                    logger.info("[CircuitBreaker] Transitioning to HALF_OPEN to test recovery.")
+                    self.state = "HALF_OPEN"
                 else:
-                    logger.debug(f"Token bucket waiting {wait_time:.2f}s for tokens")
+                    raise Exception("Circuit breaker is OPEN. Requests are blocked to allow recovery.")
 
-            # Sleep outside the lock so other coroutines can proceed
-            await asyncio.sleep(wait_time)
-            # Loop back: re-acquire lock, refill, and try again
-
-    async def get_available_tokens(self) -> float:
-        """Get current number of available tokens"""
-        async with self._lock:
-            await self._refill()
-            return self.tokens
-
-    async def reset(self) -> None:
-        """Reset the bucket to full capacity"""
-        async with self._lock:
-            self.tokens = self.capacity
-            self.last_fill = time.monotonic()
-
-
-# Global token bucket for API rate limiting
-_global_token_bucket: Optional[AsyncTokenBucket] = None
-
-
-def get_token_bucket(
-    capacity: int = 10,
-    fill_rate: float = 2.0,
-    reset: bool = False,
-) -> AsyncTokenBucket:
-    """
-    Get or create the global token bucket instance.
-
-    Args:
-        capacity: Maximum tokens (requests per second * burst)
-        fill_rate: Tokens per second
-        reset: If True, reset the existing bucket
-
-    Returns:
-        The global AsyncTokenBucket instance
-    """
-    global _global_token_bucket
-    if _global_token_bucket is None or reset:
-        _global_token_bucket = AsyncTokenBucket(
-            capacity=capacity,
-            fill_rate=fill_rate,
-        )
-    return _global_token_bucket
-
-
+            try:
+                result = await func(*args, **kwargs)
+                # Success: Reset circuit
+                if self.state == "HALF_OPEN":
+                    logger.info("[CircuitBreaker] Recovery successful. Transitioning to CLOSED.")
+                self.state = "CLOSED"
+                self.failure_count = 0
+                return result
+            except Exception as e:
+                self.failure_count += 1
+                self.last_failure_time = time.monotonic()
+                logger.warning(f"[CircuitBreaker] Failure {self.failure_count}/{self.threshold}: {e}")
+                
+                if self.failure_count >= self.threshold:
+                    logger.error("[CircuitBreaker] Threshold reached. Transitioning to OPEN state.")
+                    self.state = "OPEN"
+                
+                raise e
