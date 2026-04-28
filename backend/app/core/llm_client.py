@@ -69,8 +69,8 @@ class LLMClient:
 
     def _validate_config(self) -> None:
         if "generativelanguage.googleapis.com" in self.base_url:
-            if not self.model.startswith("gemini-"):
-                logger.warning(f"[LLMClient] Google AI model should start with 'gemini-'. Current: {self.model}")
+            if not (self.model.startswith("gemini-") or self.model.startswith("gemma-")):
+                logger.warning(f"[LLMClient] Google AI model should start with 'gemini-' or 'gemma-'. Current: {self.model}")
         
         # Removed the restrictive DeepSeek Anthropic check to allow flexible provider endpoints
 
