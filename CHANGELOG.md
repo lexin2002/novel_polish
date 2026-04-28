@@ -39,15 +39,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - config.jsonc (with JSON5 support for comments)
   - rules.json
 - **HistoryDatabase** - aiosqlite-based snapshot storage with auto-cleanup
+  - **Updated**: Now uses absolute paths (`backend/data/`) instead of relative paths
+  - Data directory: `backend/data/history.db`
+  - Logs directory: `backend/data/history/logs/`
 - **AsyncTokenBucket** - Rate limiting implementation
 - **JitterDelay** - Random delay for API smoothing
 
 #### Testing
-- **Playwright E2E tests** - 22 tests covering:
+- **Playwright E2E tests** - (Directory `tests/e2e/` does NOT exist currently)
   - App navigation and tab switching
   - Sidebar configuration interface
   - LogPanel visibility and controls
-- **pytest unit tests** - 60 tests with 85% coverage
+- **pytest unit tests** - (Directory `backend/tests/` has been deleted)
+  - Originally 60+ tests with 85% coverage
+  - Need to restore `backend/tests/` directory to run tests
 
 ### Features
 

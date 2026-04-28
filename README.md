@@ -42,40 +42,42 @@ novel_polish/
 │   │   │   └── ws.py           # WebSocket 日志广播
 │   │   ├── core/
 │   │   │   ├── config_manager.py  # 配置管理（原子写入、多提供商）
-│   │   │   ├── history_db.py      # 历史数据库
+│   │   │   ├── history_db.py      # 历史数据库（数据在 backend/data/）
 │   │   │   ├── rate_limiter.py     # 限流器
 │   │   │   ├── llm_client.py       # 统一 LLM 客户端（OpenAI/Anthropic）
 │   │   │   └── config.py           # 配置常量
 │   │   └── main.py             # 应用入口
-│   └── tests/                  # pytest 测试
-│       ├── test_llm_client.py   # LLMClient 单元测试
-│       ├── test_config_manager.py
-│       ├── test_rest.py
-│       └── ...
+│   └── requirements.txt          # Python 依赖清单
 │
 ├── src/                        # React 前端源码
 │   ├── components/
 │   │   ├── RuleEditor/        # 规则配置编辑器
 │   │   ├── LogPanel/          # 实时日志面板
 │   │   ├── Sidebar/            # 配置驾驶舱（系统设置）
-│   │   └── Workbench/          # 润色工作台
+│   │   ├── Workbench/          # 润色工作台
+│   │   └── shared/             # 共享组件（ProgressBar）
 │   ├── hooks/
 │   │   └── useWebSocket.ts     # WebSocket Hook
 │   ├── store/
 │   │   ├── configStore.ts      # 配置状态管理（多提供商）
 │   │   └── ruleStore.ts        # 规则状态管理
-│   ├── App.tsx                # 应用入口
+│   ├── contexts/
+│   │   └── WebSocketContext.tsx  # WebSocket 上下文
+│   ├── App.tsx                # 主应用组件（标签页导航）
 │   └── main.tsx               # React 入口
 │
-├── tests/e2e/                  # Playwright E2E 测试
 ├── electron/                   # Electron 主进程
-└── package.json
+│   ├── main.ts              # Electron 主进程（窗口管理、后端子进程）
+│   └── preload.ts           # 预加载脚本（暴露API）
+├── docs/                       # 专项文档
+│   └── API.md               # API 详细文档
+└── package.json                # 前端依赖与脚本
 ```
 
 ## 快速开始
 
 ### 环境要求
-- Node.js 18+
+- Node.js 20+（推荐，Electron 28 需要）
 - Python 3.12+
 - npm 或 yarn
 
@@ -85,31 +87,33 @@ novel_polish/
 # 前端依赖
 npm install
 
-# 后端依赖
-cd backend
-pip install -r requirements.txt
+# 后端依赖（在 backend/ 目录下）
+cd backend && pip install -r requirements.txt
 ```
 
 ### 启动开发服务器
 
-```bash
-# 启动前端 (Vite dev server)
-npm run dev
+⚠️ **必须同时启动前端和后端**，两个服务都需要运行（Vite 会自动代理 `/api` 和 `/ws` 到后端）
 
-# 启动后端 (另一个终端)
-cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 57621
+```bash`
+# 终端1：启动前端 (Vite dev server，默认 http://localhost:5173)
+npm run dev`
+
+# 终端2：启动后端 (FastAPI，端口 57621，开发模式建议加 --reload)
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621 --reload`
 ```
 
 ### 运行测试
 
-```bash
-# 前端 E2E 测试
-npm test
+⚠️ **当前状态**：E2E 测试目录 `tests/e2e/` 不存在，后端测试目录 `backend/tests/` 已删除。
+如需测试功能，需要重新创建测试文件。
 
-# 后端单元测试
-cd backend
-pytest tests/ -v
+```bash
+# 前端 E2E 测试（需要创建 tests/e2e/ 目录和测试文件）
+npm test  # 或 npx playwright test tests/e2e/
+
+# 后端单元测试（需要恢复 backend/tests/ 目录）
+cd backend && pytest tests/ -v --cov=app
 ```
 
 ## API 端点
@@ -121,15 +125,17 @@ pytest tests/ -v
 | GET | `/api/health` | 健康检查 |
 | GET | `/api/config` | 获取完整配置 |
 | PATCH | `/api/config` | 部分更新配置（支持嵌套路径） |
+| POST | `/api/config` | 全量替换配置 |
 | POST | `/api/config/reset` | 重置为默认配置 |
+| GET | `/api/config/path` | 获取配置文件路径（调试用） |
 | POST | `/api/config/test-connection` | 测试 LLM API 连接 |
 | GET | `/api/rules` | 获取规则 |
 | POST | `/api/rules` | 保存规则 |
-| GET | `/api/history` | 获取历史记录 |
+| POST | `/api/polish` | 润色文本（核心功能） |
+| GET | `/api/history` | 获取历史记录列表 |
 | GET | `/api/history/count` | 获取历史记录数量 |
-| GET | `/api/history/{id}` | 获取指定历史记录 |
+| GET | `/api/history/{id}` | 获取指定历史记录详情 |
 | DELETE | `/api/history/{id}` | 删除历史记录 |
-| POST | `/api/polish` | 润色文本 |
 
 ### WebSocket
 
@@ -143,7 +149,8 @@ pytest tests/ -v
 - **Linux/macOS**: `~/.config/NovelPolish/config.jsonc`
 - **Windows**: `%APPDATA%/NovelPolish/config.jsonc`
 - 规则文件：同上目录下的 `rules.json`
-- 历史数据库：`~/.config/NovelPolish/history.db`（或 `%APPDATA%/NovelPolish/history.db`）
+- 历史数据库（后端数据目录）：`backend/data/history.db`（默认位置，由 `backend/app/core/history_db.py` 管理）
+- 历史日志目录：`backend/data/history/logs/`
 
 ### LLM 配置结构
 
@@ -305,14 +312,14 @@ interface MainCategory {
 
 ### 测试
 
+⚠️ **当前状态**：E2E测试目录 `tests/e2e/` 不存在，后端测试目录 `backend/tests/` 已删除。
+如需测试功能，需要重新创建测试文件。
+
 ```bash
-# 运行所有测试
-npm test
+# 前端 E2E 测试（需要创建 tests/e2e/ 目录和测试文件）
+npm test  # 或 npx playwright test tests/e2e/
 
-# 运行特定测试文件
-npx playwright test tests/e2e/logPanel.spec.ts
-
-# 运行后端测试
+# 后端单元测试（需要恢复 backend/tests/ 目录）
 cd backend && pytest tests/ -v --cov=app
 ```
 

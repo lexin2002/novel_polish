@@ -118,7 +118,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_revisions": 2,
         "context_overlap_chars": 200,
         "context_snap_to_punctuation": True,
-        "request_jitter_range": [0.2, 1.5],
         "max_requests_per_second": 2,
         "chunk_timeout_seconds": 60,
         "enable_invalid_modification_break": True,

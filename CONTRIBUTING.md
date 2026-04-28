@@ -19,16 +19,31 @@ git checkout -b feature/your-feature-name
 
 ### 3. 开发与测试
 
+⚠️ **必须同时启动前端和后端**（两个终端）：
+
 ```bash
-# 安装依赖
+# 终端1：安装依赖
 npm install
 
-# 启动开发服务器
+# 启动前端 (Vite dev server，默认 http://localhost:5173)
 npm run dev
+```
 
-# 运行测试
-npm test
+```bash
+# 终端2：启动后端 (FastAPI，端口 57621)
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621
+```
 
+```bash
+# 运行测试（当前状态：E2E 测试目录不存在，后端测试已删除）
+# 前端 E2E 测试（需要创建 tests/e2e/ 目录和测试文件）
+npm test  # 或 npx playwright test tests/e2e/
+
+# 后端单元测试（需要恢复 backend/tests/ 目录）
+cd backend && pytest tests/ -v --cov=app
+```
+
+```bash
 # 类型检查
 npm run type-check
 
@@ -72,8 +87,7 @@ git push origin feature/your-feature-name
 
 - 遵循 PEP 8
 - 使用 type hints
-- 使用 black 进行格式化
-- 使用 flake8 进行 lint 检查
+- 推荐使用 `ruff` 进行格式化和 lint 检查（`pip install ruff`）
 
 ### Git 提交规范
 

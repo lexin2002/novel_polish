@@ -3,25 +3,27 @@
 ## Dev Commands
 - Frontend: `npm run dev` → http://localhost:5173
 - Backend: `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621`
+- Utils: `MINIMAX_API_KEY=... npx tsx configure-minimax.ts` (Automates MiniMax provider setup)
 - Both required simultaneously — Vite proxies `/api` and `/ws` to backend
 
 ## Verify
 - **Order**: lint → type-check → test
-- Single E2E: `npx playwright test tests/e2e/<file>.spec.ts`
-- Backend: `cd backend && pytest tests/ -v`
+- Single E2E: `npx playwright test tests/e2e/<file>.spec.ts` (Directory `tests/e2e/` does NOT exist currently)
+- Backend: `cd backend && pytest tests/ -v --cov=app` (Directory `backend/tests/` has been deleted)
 
 ## Architecture
 - **Frontend**: React 18 + Vite + Tailwind + Zustand + Radix UI + dnd-kit
 - **Backend**: FastAPI + Python 3.12 + aiosqlite + httpx
 - **Electron**: `electron/main.ts`, `electron/preload.ts`
 - **Path alias**: `@/*` → `src/*`
+- **Domain Model**: Rules use 3-level nesting: `MainCategory` → `SubCategory` → `Rule`
 
 ### Key Directories
 - `src/` — React frontend
 - `electron/` — Electron main/preload
 - `backend/app/` — FastAPI (api/, core/, engine/)
-- `backend/tests/` — pytest unit tests
-- `tests/e2e/` — Playwright E2E tests
+- `backend/tests/` — pytest unit tests (DELETED - need to restore)
+- `tests/e2e/` — Playwright E2E tests (DOES NOT EXIST - need to create)
 
 ### Backend Entry Points
 - `backend/app/main.py` — FastAPI app
@@ -37,12 +39,17 @@
 DeepSeek, Qwen, SiliconFlow use `api: "openai"` (OpenAI-compatible)
 
 ## Config & Data
-- Linux/macOS: `~/.config/NovelPolish/`
-- Windows: `%APPDATA%/NovelPolish/`
-- Files: `config.jsonc`, `rules.json`, `history.db`
+- **User config directory** (config.jsonc, rules.json): 
+  - Linux/macOS: `~/.config/NovelPolish/`
+  - Windows: `%APPDATA%/NovelPolish/`
+- **Project data directory** (history.db, logs):
+  - `backend/data/history.db` — SQLite database (history snapshots)
+  - `backend/data/history/logs/` — Snapshot log files
+- Files in user config: `config.jsonc`, `rules.json`
+- Files in project data: `history.db`, `history/logs/`
 
 ## CI Build
-- PyInstaller path: `app/main.py` (NOT `backend/app/main.py`)
+- PyInstaller entry: `app/main.py` (relative to `backend/` directory, i.e. `backend/app/main.py`)
 - Output: `release/*.exe`
 
 ## Quirks
@@ -50,3 +57,5 @@ DeepSeek, Qwen, SiliconFlow use `api: "openai"` (OpenAI-compatible)
 - Config uses JSON5 (supports comments)
 - E2E tests auto-start Vite via `playwright.config.ts` webServer
 - Backend tests use `pytest-asyncio` + `pytest-cov`
+- **Updated**: `backend/app/core/history_db.py` now uses absolute paths (`backend/data/`) instead of relative paths
+- **Note**: All LLM configuration (API keys, models, etc.) is managed via `config.jsonc` UI, NOT via `.env` file

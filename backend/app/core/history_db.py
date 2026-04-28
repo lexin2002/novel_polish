@@ -12,6 +12,9 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
+# Base directory: backend/ (two levels up from this file)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 # Database schema
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -37,9 +40,13 @@ class HistoryDatabase:
 
     def __init__(
         self,
-        db_path: str = "./data/history.db",
-        logs_dir: str = "./data/history/logs",
+        db_path: str = None,
+        logs_dir: str = None,
     ):
+        if db_path is None:
+            db_path = str(BASE_DIR / "data" / "history.db")
+        if logs_dir is None:
+            logs_dir = str(BASE_DIR / "data" / "history" / "logs")
         self.db_path = Path(db_path)
         self.logs_dir = Path(logs_dir)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -252,7 +259,6 @@ class HistoryDatabase:
 
     async def delete_snapshot(self, snapshot_id: int) -> bool:
         """Delete a specific snapshot and its associated log file"""
-        # First get the log file path
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
@@ -261,18 +267,17 @@ class HistoryDatabase:
             )
             row = await cursor.fetchone()
 
-        if not row:
-            return False
+            if not row:
+                return False
 
-        log_path = row["log_file_path"]
-        if log_path and os.path.exists(log_path):
-            try:
-                os.remove(log_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete log file: {e}")
+            log_path = row["log_file_path"]
+            if log_path and os.path.exists(log_path):
+                try:
+                    os.remove(log_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete log file: {e}")
 
-        # Delete the snapshot record
-        async with aiosqlite.connect(self.db_path) as db:
+            # Delete the snapshot record in the same transaction
             await db.execute(
                 "DELETE FROM snapshots WHERE id = ?",
                 (snapshot_id,),

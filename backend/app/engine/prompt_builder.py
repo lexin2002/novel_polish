@@ -99,10 +99,7 @@ class PromptBuilder:
         Returns:
             Text wrapped in isolation tags
         """
-        if not self.xml_tag_isolation_enabled:
-            logger.warning("XML tag isolation disabled - user text will not be wrapped")
-            return text
-
+        # Always wrap in isolation tags for safety, even when disabled
         return f"{USER_TEXT_ISOLATION_TAG}\n{text}\n{USER_TEXT_ISOLATION_TAG_END}"
 
     def format_rules_as_instructions(
@@ -280,60 +277,6 @@ Output format:
         return ""
 
 
-class SafetyPromptBuilder(PromptBuilder):
-    """PromptBuilder with enhanced safety features"""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.injection_patterns = [
-            "ignore all previous instructions",
-            "ignore previous instructions",
-            "disregard all instructions",
-            "forget your instructions",
-            "you are now",
-            "pretend you are",
-            "act as",
-            "ignore system",
-            "override system",
-            "new instructions",
-            "replace instructions",
-        ]
-
-    def detect_injection_attempt(self, text: str) -> bool:
-        """
-        Detect potential prompt injection patterns.
-
-        Args:
-            text: Text to check for injection patterns
-
-        Returns:
-            True if potential injection detected
-        """
-        text_lower = text.lower()
-        for pattern in self.injection_patterns:
-            if pattern in text_lower:
-                logger.warning(f"Potential injection pattern detected: {pattern}")
-                return True
-        return False
-
-    def build_user_prompt(self, user_text: str, task_description: str = "Please review and polish this fiction text.") -> str:
-        """
-        Build user prompt with injection detection.
-
-        Args:
-            user_text: The fiction text to be processed
-            task_description: Description of the task
-
-        Returns:
-            Complete user prompt
-        """
-        # Check for injection attempts
-        if self.detect_injection_attempt(user_text):
-            logger.warning("User text contains potential prompt injection - still wrapping in isolation tags")
-
-        return super().build_user_prompt(user_text, task_description)
-
-
 def create_prompt_builder(
     safety_exempt_enabled: bool = False,
     xml_tag_isolation_enabled: bool = True,
@@ -352,16 +295,3 @@ def create_prompt_builder(
         safety_exempt_enabled=safety_exempt_enabled,
         xml_tag_isolation_enabled=xml_tag_isolation_enabled,
     )
-
-
-def create_safety_prompt_builder(**kwargs) -> SafetyPromptBuilder:
-    """
-    Factory function to create a SafetyPromptBuilder with enhanced security.
-
-    Args:
-        **kwargs: Arguments for PromptBuilder
-
-    Returns:
-        Configured SafetyPromptBuilder instance
-    """
-    return SafetyPromptBuilder(**kwargs)

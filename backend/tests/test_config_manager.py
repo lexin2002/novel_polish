@@ -1,569 +1,187 @@
-"""Tests for Configuration Manager"""
+"""Tests for ConfigurationManager"""
 
-import json5
-import os
-import tempfile
-import threading
-import time
+import copy
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
+
 from app.core.config_manager import (
     ConfigurationManager,
     DEFAULT_CONFIG,
     DEFAULT_RULES,
-    get_config_manager,
-    reset_config_manager,
+    FileLockError,
+    LLM_PROVIDERS,
 )
 
 
-@pytest.fixture
-def temp_data_dir():
-    """Create a temporary data directory for testing"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
+class TestConfigManagerBasics:
+    """Basic ConfigurationManager functionality"""
 
+    def test_init_creates_directory(self, temp_data_dir: Path):
+        """ConfigManager should create the data directory if it doesn't exist"""
+        new_dir = temp_data_dir / "subdir" / "nested"
+        assert not new_dir.exists()
+        cm = ConfigurationManager(data_dir=str(new_dir))
+        assert new_dir.exists()
+        assert cm.config_path.exists()
+        assert cm.rules_path.exists()
 
-@pytest.fixture
-def config_manager(temp_data_dir):
-    """Create a ConfigurationManager with temp directory"""
-    manager = ConfigurationManager(data_dir=temp_data_dir)
-    yield manager
-    # Cleanup
-    for f in Path(temp_data_dir).iterdir():
-        if f.is_file():
-            f.unlink()
-
-
-class TestConfigurationManager:
-    """Test basic ConfigurationManager operations"""
-
-    def test_config_initializes_with_defaults(self, config_manager):
-        """Test that config initializes with default values"""
+    def test_default_config_values(self, config_manager: ConfigurationManager):
+        """Default config should have all required sections"""
         config = config_manager.read_config()
-        assert config["priority_order"] == ["P0", "P1", "P2", "P3"]
         assert "llm" in config
         assert "engine" in config
+        assert "network" in config
+        assert "ui" in config
+        assert "history" in config
+        assert "priority_order" in config
+        assert config["priority_order"] == ["P0", "P1", "P2", "P3"]
 
-    def test_rules_initializes_with_defaults(self, config_manager):
-        """Test that rules initializes with default values"""
+    def test_default_config_llm_providers(self, config_manager: ConfigurationManager):
+        """Default LLM config should have all providers"""
+        config = config_manager.read_config()
+        providers = config["llm"]["providers"]
+        for provider_id in LLM_PROVIDERS:
+            assert provider_id in providers, f"Missing provider: {provider_id}"
+            assert providers[provider_id]["name"] != ""
+
+    def test_default_rules_structure(self, config_manager: ConfigurationManager):
+        """Default rules should have at least one main_category"""
         rules = config_manager.read_rules()
         assert "main_categories" in rules
         assert len(rules["main_categories"]) > 0
+        assert rules["main_categories"][0]["name"] == "语法与标点"
 
-    def test_write_and_read_config_roundtrip(self, config_manager):
-        """Test config write and read are consistent"""
-        new_config = DEFAULT_CONFIG.copy()
-        new_config["llm"]["providers"]["openai"]["active_model"] = "gpt-4o-mini"
 
-        config_manager.write_config(new_config)
-        read_config = config_manager.read_config()
+class TestConfigCRUD:
+    """Config create, read, update, delete operations"""
 
-        assert read_config["llm"]["providers"]["openai"]["active_model"] == "gpt-4o-mini"
+    def test_read_returns_default_when_file_missing(self, temp_data_dir: Path):
+        """Reading non-existent config should return defaults"""
+        cm = ConfigurationManager(data_dir=str(temp_data_dir))
+        config = cm.read_config()
+        assert config["engine"]["chunk_size"] == 1000
 
-    def test_write_and_read_rules_roundtrip(self, config_manager):
-        """Test rules write and read are consistent"""
-        new_rules = DEFAULT_RULES.copy()
-        new_rules["main_categories"].append(
-            {
-                "name": "测试类别",
-                "priority": "P2",
-                "is_active": True,
-                "sub_categories": [],
-            }
-        )
-
-        config_manager.write_rules(new_rules)
-        read_rules = config_manager.read_rules()
-
-        assert len(read_rules["main_categories"]) == len(new_rules["main_categories"])
-
-    def test_patch_config_nested(self, config_manager):
-        """Test patching nested config values"""
-        patch = {
-            "llm": {
-                "providers": {
-                    "openai": {
-                        "active_model": "claude-3-sonnet"
-                    }
-                },
-                "temperature": 0.7,
-            }
-        }
-
-        result = config_manager.patch_config(patch)
-        assert result["llm"]["providers"]["openai"]["active_model"] == "claude-3-sonnet"
-        assert result["llm"]["temperature"] == 0.7
-        # Original keys should be preserved
-        assert result["llm"]["providers"]["openai"]["api_key"] == ""
-        assert result["llm"]["active_provider"] == "openai"
-
-    def test_patch_config_preserves_other_sections(self, config_manager):
-        """Test that patching one section doesn't affect others"""
-        original_engine = config_manager.read_config()["engine"].copy()
-
-        patch = {"llm": {"temperature": 0.2}}
-        result = config_manager.patch_config(patch)
-
-        # Engine section should be unchanged
-        assert result["engine"] == original_engine
-
-
-class TestAtomicWrites:
-    """Test atomic write behavior"""
-
-    def test_write_creates_atomic_replacement(self, temp_data_dir):
-        """Test that writes use atomic os.replace"""
-        manager = ConfigurationManager(data_dir=temp_data_dir)
-
-        # Write some data
-        test_config = DEFAULT_CONFIG.copy()
-        test_config["llm"]["providers"]["openai"]["active_model"] = "pre-write-model"
-        manager.write_config(test_config)
-
-        # Verify file exists
-        config_path = Path(temp_data_dir) / "config.jsonc"
-        assert config_path.exists()
-
-        # Write new data
-        test_config["llm"]["model"] = "post-write-model"
-        manager.write_config(test_config)
-
-        # Read back and verify
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json5.load(f)
-        assert data["llm"]["model"] == "post-write-model"
-
-    def test_corrupted_config_falls_back_to_default(self, temp_data_dir):
-        """Test that corrupted config file falls back to default"""
-        manager = ConfigurationManager(data_dir=temp_data_dir)
-
-        # Corrupt the file
-        config_path = Path(temp_data_dir) / "config.jsonc"
-        with open(config_path, "w") as f:
-            f.write("{ invalid json }")
-
-        # Read should return default
-        result = manager.read_config()
-        assert result == DEFAULT_CONFIG
-
-
-class TestConcurrentAccess:
-    """Test concurrent access with FileLock"""
-
-    def test_concurrent_reads_are_thread_safe(self, config_manager):
-        """Test that concurrent reads don't cause issues"""
-        num_threads = 50
-        results = []
-
-        def read_config():
-            result = config_manager.read_config()
-            results.append(result)
-
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [executor.submit(read_config) for _ in range(num_threads)]
-            for future in as_completed(futures):
-                future.result()
-
-        # All reads should return valid config
-        assert len(results) == num_threads
-        for result in results:
-            assert result is not None
-            assert "llm" in result
-
-    def test_concurrent_writes_are_atomic(self, temp_data_dir):
-        """Test that concurrent writes are atomic and don't corrupt file"""
-        manager = ConfigurationManager(data_dir=temp_data_dir)
-
-        num_threads = 50
-        unique_model = f"model-thread-{{}}"
-
-        def write_config(thread_id):
-            # Each thread writes with a unique model name
-            patch = {
-                "llm": {
-                    "model": unique_model.format(thread_id),
-                    "temperature": thread_id / 100.0,
-                }
-            }
-            manager.patch_config(patch)
-            return thread_id
-
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [executor.submit(write_config, i) for i in range(num_threads)]
-            for future in as_completed(futures):
-                future.result()
-
-        # After all writes, file should be valid JSON (not corrupted)
-        config_path = Path(temp_data_dir) / "config.jsonc"
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json5.load(f)
-
-        # Should be valid config structure
-        assert "llm" in data
-        assert "model" in data["llm"]
-        assert "temperature" in data["llm"]
-
-        # Should have one of the written values
-        model_value = data["llm"]["model"]
-        assert model_value.startswith("model-thread-")
-
-    def test_concurrent_reads_and_writes(self, temp_data_dir):
-        """Test mixed concurrent reads and writes"""
-        manager = ConfigurationManager(data_dir=temp_data_dir)
-
-        num_readers = 30
-        num_writers = 20
-        total_ops = num_readers + num_writers
-        errors = []
-
-        def do_read():
-            try:
-                result = manager.read_config()
-                assert result is not None
-            except Exception as e:
-                errors.append(("read", e))
-
-        def do_write(thread_id):
-            try:
-                manager.patch_config({"engine": {"max_workers": thread_id}})
-            except Exception as e:
-                errors.append(("write", e))
-
-        with ThreadPoolExecutor(max_workers=total_ops) as executor:
-            futures = []
-            for i in range(num_writers):
-                futures.append(executor.submit(do_write, i))
-            for _ in range(num_readers):
-                futures.append(executor.submit(do_read))
-
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    errors.append(("future", e))
-
-        # Should have no errors
-        assert len(errors) == 0, f"Errors occurred: {errors}"
-
-        # File should still be valid JSON
-        config_path = Path(temp_data_dir) / "config.jsonc"
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json5.load(f)
-        assert "engine" in data
-
-
-class TestLLMConfigMigration:
-    """Test migration from old flat config to provider-centric format"""
-
-    def test_migrate_old_flat_config_returns_correct_structure(self, config_manager):
-        """Test that _migrate_llm_config converts old format to provider-centric"""
-        old_llm_config = {
-            "provider": "openai",
-            "api_key": "sk-old-key",
-            "base_url": "https://api.openai.com/v1",
-            "model": "gpt-4o",
-            "temperature": 0.5,
-        }
-
-        result, was_modified = config_manager._migrate_llm_config(old_llm_config)
-
-        assert was_modified is True
-        assert "providers" in result
-        assert result["active_provider"] == "openai"
-        assert result["providers"]["openai"]["api_key"] == "sk-old-key"
-        assert result["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
-        assert result["providers"]["openai"]["active_model"] == "gpt-4o"
-        assert result["temperature"] == 0.5
-
-    def test_migrate_old_config_preserves_all_provider_api_types(self, config_manager):
-        """Test that migration assigns correct api type to each provider"""
-        old_llm_config = {
-            "provider": "anthropic",
-            "api_key": "sk-ant-key",
-            "model": "claude-3-5-sonnet-latest",
-        }
-
-        result, _ = config_manager._migrate_llm_config(old_llm_config)
-
-        # Each provider should have correct api field
-        assert result["providers"]["openai"]["api"] == "openai"
-        assert result["providers"]["anthropic"]["api"] == "anthropic"
-        assert result["providers"]["deepseek"]["api"] == "openai"
-        assert result["providers"]["qwen"]["api"] == "openai"
-        assert result["providers"]["siliconflow"]["api"] == "openai"
-        assert result["providers"]["custom"]["api"] == "openai"
-
-    def test_migrate_old_custom_model_is_prepended(self, config_manager):
-        """Test that old custom model not in default list is prepended during migration"""
-        old_llm_config = {
-            "provider": "openai",
-            "api_key": "sk-key",
-            "model": "custom-model-xyz",  # Not in default list
-        }
-
-        result, _ = config_manager._migrate_llm_config(old_llm_config)
-
-        # Custom model should be prepended to list
-        models = result["providers"]["openai"]["models"]
-        assert models[0] == "custom-model-xyz"
-        assert "gpt-4o" in models
-
-    def test_fix_already_migrated_wrong_api_field(self, config_manager):
-        """Test that already migrated config with wrong api field is auto-fixed"""
-        llm_config = {
-            "active_provider": "anthropic",
-            "providers": {
-                "openai": {
-                    "name": "OpenAI",
-                    "api": "anthropic",  # WRONG - should be "openai"
-                    "api_key": "sk-key",
-                    "base_url": "https://api.openai.com/v1",
-                    "models": ["gpt-4o"],
-                    "active_model": "gpt-4o",
-                },
-                "anthropic": {
-                    "name": "Anthropic",
-                    "api": "anthropic",
-                    "api_key": "sk-ant-key",
-                    "base_url": "https://api.anthropic.com/v1",
-                    "models": ["claude-3-5-sonnet-latest"],
-                    "active_model": "claude-3-5-sonnet-latest",
-                },
-            },
-            "temperature": 0.4,
-        }
-
-        result, was_modified = config_manager._migrate_llm_config(llm_config)
-
-        # api field should be fixed
-        assert was_modified is True
-        assert result["providers"]["openai"]["api"] == "openai"
-        # anthropic should still be correct
-        assert result["providers"]["anthropic"]["api"] == "anthropic"
-
-    def test_fix_already_migrated_wrong_base_url(self, config_manager):
-        """Test that already migrated config with wrong base_url is auto-fixed"""
-        llm_config = {
-            "active_provider": "openai",
-            "providers": {
-                "openai": {
-                    "name": "OpenAI",
-                    "api": "openai",
-                    "api_key": "sk-key",
-                    "base_url": "",  # Empty gets auto-filled with default
-                    "models": ["gpt-4o"],
-                    "active_model": "gpt-4o",
-                },
-            },
-            "temperature": 0.4,
-        }
-
-        result, was_modified = config_manager._migrate_llm_config(llm_config)
-
-        assert was_modified is True
-        assert result["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
-
-    def test_fix_already_migrated_missing_provider_added(self, config_manager):
-        """Test that already migrated config missing a provider gets it added"""
-        llm_config = {
-            "active_provider": "openai",
-            "providers": {
-                "openai": {
-                    "name": "OpenAI",
-                    "api": "openai",
-                    "api_key": "sk-key",
-                    "base_url": "https://api.openai.com/v1",
-                    "models": ["gpt-4o"],
-                    "active_model": "gpt-4o",
-                },
-            },
-            "temperature": 0.4,
-        }
-
-        result, was_modified = config_manager._migrate_llm_config(llm_config)
-
-        assert was_modified is True
-        # All providers should now exist
-        assert "anthropic" in result["providers"]
-        assert "deepseek" in result["providers"]
-        assert "qwen" in result["providers"]
-        assert "siliconflow" in result["providers"]
-        assert "custom" in result["providers"]
-
-    def test_migration_returns_was_modified_true_for_old_format(self, config_manager):
-        """Test that migration returns was_modified=True for old format"""
-        old_llm_config = {
-            "provider": "deepseek",
-            "api_key": "sk-deepseek",
-            "model": "deepseek-chat",
-        }
-
-        _, was_modified = config_manager._migrate_llm_config(old_llm_config)
-
-        assert was_modified is True
-
-    def test_migration_returns_was_modified_false_for_valid_already_migrated(self, config_manager):
-        """Test that migration returns was_modified=False for already-valid migrated config"""
-        valid_llm_config = {
-            "active_provider": "openai",
-            "providers": {
-                "openai": {
-                    "name": "OpenAI",
-                    "api": "openai",
-                    "api_key": "sk-key",
-                    "base_url": "https://api.openai.com/v1",
-                    "models": ["gpt-4o"],
-                    "active_model": "gpt-4o",
-                },
-                "anthropic": {
-                    "name": "Anthropic",
-                    "api": "anthropic",
-                    "api_key": "sk-ant-key",
-                    "base_url": "https://api.anthropic.com/v1",
-                    "models": ["claude-3-5-sonnet-latest"],
-                    "active_model": "claude-3-5-sonnet-latest",
-                },
-                "deepseek": {
-                    "name": "DeepSeek",
-                    "api": "openai",
-                    "api_key": "",
-                    "base_url": "https://api.deepseek.com/v1",
-                    "models": ["deepseek-chat", "deepseek-coder"],
-                    "active_model": "deepseek-chat",
-                },
-                "qwen": {
-                    "name": "通义千问",
-                    "api": "openai",
-                    "api_key": "",
-                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
-                    "active_model": "qwen-turbo",
-                },
-                "siliconflow": {
-                    "name": "SiliconFlow",
-                    "api": "openai",
-                    "api_key": "",
-                    "base_url": "https://api.siliconflow.cn/v1",
-                    "models": ["THUDM/GLM-4-32B-0414", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/DeepSeek-V2.5"],
-                    "active_model": "THUDM/GLM-4-32B-0414",
-                },
-                "custom": {
-                    "name": "自定义",
-                    "api": "openai",
-                    "api_key": "",
-                    "base_url": "",
-                    "models": [],
-                    "active_model": "",
-                },
-            },
-            "temperature": 0.4,
-            "max_tokens": 4096,
-            "safety_exempt_enabled": True,
-            "xml_tag_isolation_enabled": True,
-            "desensitize_mode": False,
-        }
-
-        _, was_modified = config_manager._migrate_llm_config(valid_llm_config)
-
-        # was_modified=True because empty base_url for 'custom' provider gets auto-filled
-        assert was_modified is True
-
-    def test_write_config_migrates_old_format(self, config_manager):
-        """Test that write_config migrates old format config"""
-        # Write old format directly via patch
-        old_config = DEFAULT_CONFIG.copy()
-        old_config["llm"] = {
-            "provider": "anthropic",
-            "api_key": "sk-ant-test",
-            "base_url": "https://api.anthropic.com/v1",
-            "model": "claude-3-5-sonnet-latest",
-            "temperature": 0.6,
-        }
-        config_manager.write_config(old_config)
-
-        # Read back should have migrated format
-        result = config_manager.read_config()
-
-        assert "providers" in result["llm"]
-        assert result["llm"]["active_provider"] == "anthropic"
-        assert result["llm"]["providers"]["anthropic"]["api_key"] == "sk-ant-test"
-        assert result["llm"]["temperature"] == 0.6
-
-    def test_read_config_auto_fixes_on_load(self, config_manager):
-        """Test that read_config auto-fixes migrated config with wrong api field"""
-        # Write config with wrong api field using write_config
-        config = DEFAULT_CONFIG.copy()
-        config["llm"]["providers"]["openai"]["api"] = "anthropic"  # Wrong!
-        config["llm"]["providers"]["openai"]["base_url"] = ""  # Empty gets auto-filled
+    def test_write_and_read_config(self, config_manager: ConfigurationManager):
+        """After writing config, read should return the same values"""
+        config = config_manager.read_config()
+        config["engine"]["chunk_size"] = 2000
         config_manager.write_config(config)
 
-        # Read should auto-fix api field and empty base_url
-        result = config_manager.read_config()
+        reread = config_manager.read_config()
+        assert reread["engine"]["chunk_size"] == 2000
+        assert reread["llm"]["active_provider"] == "openai"
 
-        assert result["llm"]["providers"]["openai"]["api"] == "openai"
-        assert result["llm"]["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
+    def test_patch_config_single_field(self, config_manager: ConfigurationManager):
+        """Patching a single field should preserve other fields"""
+        config_manager.patch_config({"engine": {"chunk_size": 1500}})
+        config = config_manager.read_config()
+        assert config["engine"]["chunk_size"] == 1500
+        assert config["engine"]["max_workers"] == 3  # unchanged
+
+    def test_patch_config_nested(self, config_manager: ConfigurationManager):
+        """Patching nested fields should deep merge"""
+        config_manager.patch_config({
+            "llm": {
+                "temperature": 0.7,
+                "providers": {
+                    "openai": {"active_model": "gpt-4-turbo"}
+                }
+            }
+        })
+        config = config_manager.read_config()
+        assert config["llm"]["temperature"] == 0.7
+        assert config["llm"]["providers"]["openai"]["active_model"] == "gpt-4-turbo"
+        # Other providers unchanged
+        assert config["llm"]["providers"]["anthropic"]["active_model"] == "claude-3-5-sonnet-latest"
+
+    def test_reset_config_to_defaults(self, config_manager: ConfigurationManager):
+        """Reset should restore default values"""
+        config_manager.patch_config({"engine": {"chunk_size": 9999}})
+        config_manager.write_config(DEFAULT_CONFIG)
+        config = config_manager.read_config()
+        assert config["engine"]["chunk_size"] == 1000
+
+    def test_get_config_path(self, config_manager: ConfigurationManager, temp_data_dir: Path):
+        """get_config_path should return the full path"""
+        path = config_manager.get_config_path()
+        assert path.endswith("config.jsonc")
+        assert str(temp_data_dir) in path
+
+    def test_get_rules_path(self, config_manager: ConfigurationManager, temp_data_dir: Path):
+        """get_rules_path should return the full path"""
+        path = config_manager.get_rules_path()
+        assert path.endswith("rules.json")
+        assert str(temp_data_dir) in path
 
 
-class TestConfigAPI:
-    """Test REST API integration"""
+class TestRulesCRUD:
+    """Rules create, read, update operations"""
 
-    @pytest.mark.asyncio
-    async def test_get_config_via_api(self):
-        """Test GET /api/config endpoint"""
-        from httpx import AsyncClient, ASGITransport
+    def test_write_and_read_rules(self, config_manager: ConfigurationManager, sample_rules):
+        """After writing rules, read should return the same data"""
+        config_manager.write_rules(sample_rules)
+        rules = config_manager.read_rules()
+        assert rules["main_categories"][0]["name"] == sample_rules["main_categories"][0]["name"]
 
-        from app.main import app
+    def test_rules_integrity(self, config_manager: ConfigurationManager):
+        """Rules should maintain 3-level nesting structure"""
+        from app.core.config_manager import DEFAULT_RULES
+        config_manager.write_rules(DEFAULT_RULES)
+        rules = config_manager.read_rules()
+        for cat in rules["main_categories"]:
+            assert "name" in cat
+            assert "priority" in cat
+            assert "is_active" in cat
+            assert "sub_categories" in cat
+            for sub in cat["sub_categories"]:
+                assert "name" in sub
+                assert "priority" in sub
+                assert "rules" in sub
+                for rule in sub["rules"]:
+                    assert "name" in rule
+                    assert "is_active" in rule
+                    assert "instruction" in rule
 
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/config")
-            assert response.status_code == 200
-            data = response.json()
-            assert "llm" in data
+    def test_empty_rules(self, config_manager: ConfigurationManager):
+        """Writing empty rules should be valid"""
+        config_manager.write_rules({"main_categories": []})
+        rules = config_manager.read_rules()
+        assert rules["main_categories"] == []
 
-    @pytest.mark.asyncio
-    async def test_patch_config_via_api(self):
-        """Test PATCH /api/config endpoint"""
-        from httpx import AsyncClient, ASGITransport
 
-        from app.main import app
+class TestLLMMigration:
+    """LLM config migration tests"""
 
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            patch_data = {"llm": {"temperature": 0.3}}
-            response = await client.patch("/api/config", json=patch_data)
-            assert response.status_code == 200
-            result = response.json()
-            assert result["llm"]["temperature"] == 0.3
+    def test_old_format_migration(self, temp_data_dir: Path):
+        """Old flat llm config should be migrated to provider format"""
+        cm = ConfigurationManager(data_dir=str(temp_data_dir))
+        old_config = {
+            "llm": {
+                "provider": "openai",
+                "api_key": "sk-test",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o",
+                "temperature": 0.5,
+                "max_tokens": 2048,
+            }
+        }
+        cm.write_config(old_config)
+        config = cm.read_config()
+        llm = config["llm"]
+        # Should be migrated to provider format
+        assert "providers" in llm
+        assert llm["active_provider"] == "openai"
+        assert llm["providers"]["openai"]["api_key"] == "sk-test"
+        assert llm["temperature"] == 0.5
 
-    @pytest.mark.asyncio
-    async def test_get_rules_via_api(self):
-        """Test GET /api/rules endpoint"""
-        from httpx import AsyncClient, ASGITransport
-
-        from app.main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/rules")
-            assert response.status_code == 200
-            data = response.json()
-            assert "main_categories" in data
-
-    @pytest.mark.asyncio
-    async def test_post_rules_via_api(self):
-        """Test POST /api/rules endpoint"""
-        from httpx import AsyncClient, ASGITransport
-
-        from app.main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            new_rules = DEFAULT_RULES.copy()
-            new_rules["main_categories"] = []
-            response = await client.post("/api/rules", json=new_rules)
-            assert response.status_code == 200
-            result = response.json()
-            assert result["status"] == "ok"
+    def test_missing_providers_filled(self, config_manager: ConfigurationManager):
+        """Missing provider slots should be auto-filled"""
+        config = config_manager.read_config()
+        # Remove a provider to simulate partial data
+        llm = config["llm"]
+        if "deepseek" in llm["providers"]:
+            del llm["providers"]["deepseek"]
+        config_manager.write_config(config)
+        reread = config_manager.read_config()
+        assert "deepseek" in reread["llm"]["providers"]

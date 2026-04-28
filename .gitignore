@@ -18,6 +18,7 @@ release/
 # Testing
 test-results/
 playwright-report/
+coverage/
 .coverage
 .pytest_cache/
 
@@ -42,6 +43,7 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *$py.class
+*.class
 .Python
 venv/
 env/
@@ -55,7 +57,3 @@ data/*.lock
 
 # Except defaults
 backend/data/.gitkeep
-# Python bytecode
-__pycache__/
-*.py[cod]
-*.class

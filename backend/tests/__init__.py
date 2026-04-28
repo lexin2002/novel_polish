@@ -1,1 +1,1 @@
-"""Backend tests package"""
+"""Test package for Novel Polish backend"""

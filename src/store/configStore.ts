@@ -48,7 +48,6 @@ export interface ConfigState {
     max_revisions: number
     context_overlap_chars: number
     context_snap_to_punctuation: boolean
-    request_jitter_range: [number, number]
     max_requests_per_second: number
     chunk_timeout_seconds: number
     enable_invalid_modification_break: boolean

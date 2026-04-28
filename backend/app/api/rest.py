@@ -54,13 +54,13 @@ async def patch_config(patch: Dict[str, Any]) -> Dict[str, Any]:
 
 @router.post("/api/config")
 async def post_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Reset configuration to provided values (full replacement)"""
+    """Replace entire configuration with provided values (full replacement)"""
     from app.core.config_manager import FileLockError
     manager = get_config_manager()
     if manager._is_read_only:
         raise HTTPException(status_code=409, detail="Config is read-only due to lock timeout. Please retry later.")
     manager.write_config(config)
-    return {"status": "ok", "message": "Config reset successfully"}
+    return {"status": "ok", "message": "Config written successfully"}
 
 
 @router.post("/api/config/reset")
@@ -105,6 +105,7 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
     if not active_model:
         return {"ok": False, "error": "请先选择一个模型"}
 
+    client = None
     try:
         client = await create_llm_client(
             provider=active_provider,
@@ -115,12 +116,14 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
             timeout=30.0,
         )
         result = await client.test_connection()
-        await client.close()
         return {"ok": True, "model": result["model"], "response": result.get("response", "OK")}
     except LLMConnectionError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         return {"ok": False, "error": f"连接失败: {str(e)}"}
+    finally:
+        if client:
+            await client.close()
 
 
 @router.get("/api/config/path")

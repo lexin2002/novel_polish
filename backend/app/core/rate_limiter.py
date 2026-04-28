@@ -4,8 +4,7 @@ import asyncio
 import logging
 import random
 import time
-from functools import wraps
-from typing import Callable, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -104,78 +103,6 @@ class AsyncTokenBucket:
             self.last_fill = time.monotonic()
 
 
-def jitter_delay(
-    jitter_min: float = 0.2,
-    jitter_max: float = 1.5,
-    token_bucket: Optional[AsyncTokenBucket] = None,
-):
-    """
-    Decorator that adds random jitter delay to an async function.
-
-    Optionally integrates with a token bucket for combined rate limiting.
-
-    Args:
-        jitter_min: Minimum delay in seconds (default 0.2)
-        jitter_max: Maximum delay in seconds (default 1.5)
-        token_bucket: Optional AsyncTokenBucket for rate limiting
-
-    Usage:
-        @jitter_delay(jitter_min=0.5, jitter_max=2.0)
-        async def my_api_call():
-            ...
-    """
-    if jitter_min > jitter_max:
-        jitter_min, jitter_max = jitter_max, jitter_min
-
-    def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # Acquire token if bucket is provided
-            if token_bucket is not None:
-                await token_bucket.consume()
-
-            # Add jitter delay
-            delay = random.uniform(jitter_min, jitter_max)
-            logger.debug(f"Jitter delay: {delay:.3f}s")
-            await asyncio.sleep(delay)
-
-            # Execute the function
-            return await func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-class JitterDelayDecorator:
-    """
-    Class-based jitter delay decorator for cleaner integration.
-    Can be used as a dependency in FastAPI.
-    """
-
-    def __init__(
-        self,
-        jitter_min: float = 0.2,
-        jitter_max: float = 1.5,
-    ):
-        self.jitter_min = jitter_min
-        self.jitter_max = jitter_max
-
-    def delay(self) -> float:
-        """Generate a random delay"""
-        return random.uniform(self.jitter_min, self.jitter_max)
-
-    async def __call__(self, func: Callable) -> Callable:
-        """Apply jitter delay to the decorated function"""
-
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            await asyncio.sleep(self.delay())
-            return await func(*args, **kwargs)
-
-        return wrapper
-
-
 # Global token bucket for API rate limiting
 _global_token_bucket: Optional[AsyncTokenBucket] = None
 
@@ -205,7 +132,3 @@ def get_token_bucket(
     return _global_token_bucket
 
 
-async def reset_token_bucket() -> None:
-    """Reset the global token bucket"""
-    if _global_token_bucket is not None:
-        await _global_token_bucket.reset()

@@ -15,8 +15,11 @@ interface WebSocketContextValue {
 const WebSocketContext = React.createContext<WebSocketContextValue | null>(null)
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Use relative WebSocket URL to support different deployment environments
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/ws/logs`
   const ws = useWebSocket({
-    url: 'ws://localhost:57621/ws/logs',
+    url: wsUrl,
     maxLogs: 2000,
   })
 

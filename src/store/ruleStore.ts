@@ -83,7 +83,6 @@ interface RuleStore {
   deleteRule: (catIndex: number, subIndex: number, ruleIndex: number) => void
 
   // Validation
-  validatePriority: (priority: string, validPriorities: string[]) => boolean
   validateAllPriorities: (validPriorities: string[]) => boolean
   clearValidationErrors: () => void
 }
@@ -330,10 +329,6 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       newDraft.main_categories = cats
       return { draft: newDraft }
     })
-  },
-
-  validatePriority: (priority: string, validPriorities: string[]) => {
-    return validPriorities.includes(priority)
   },
 
   validateAllPriorities: (validPriorities: string[]) => {
