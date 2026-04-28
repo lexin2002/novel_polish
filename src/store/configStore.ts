@@ -170,7 +170,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   fetchConfig: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await axios.get<ConfigState>('/api/config')
+      const response = await axios.get<ConfigState>('http://localhost:57621/api/config')
       set({ config: response.data, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch config'
@@ -182,7 +182,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   patchConfig: async (patch: Partial<ConfigState>) => {
     set({ isSyncing: true, error: null })
     try {
-      const response = await axios.patch<ConfigState>('/api/config', patch)
+      const response = await axios.patch<ConfigState>('http://localhost:57621/api/config', patch)
       set({ config: response.data, isSyncing: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to patch config'
@@ -193,8 +193,8 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   resetConfig: async () => {
     set({ isLoading: true, error: null })
     try {
-      await axios.post('/api/config/reset')
-      const response = await axios.get<ConfigState>('/api/config')
+      await axios.post('http://localhost:57621/api/config/reset')
+      const response = await axios.get<ConfigState>('http://localhost:57621/api/config')
       set({ config: response.data, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to reset config'
@@ -207,7 +207,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     if (!config) return { ok: false, error: 'Config not loaded' }
     try {
       const response = await axios.post<{ ok: boolean; error?: string }>(
-        '/api/config/test-connection',
+        'http://localhost:57621/api/config/test-connection',
         config.llm
       )
       return response.data

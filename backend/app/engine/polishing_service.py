@@ -95,43 +95,39 @@ class PolishingService:
     async def polish_text(self, request: PolishRequest) -> PolishResult:
         """
         Polish fiction text using LLM.
-
-        Args:
-            request: PolishRequest with text and options
-
-        Returns:
-            PolishResult with polished text and modifications
         """
-        logger.info(f"Polishing text of length {len(request.text)}")
-
+        logger.info(f"!!! [DEBUG] polish_text entered. Text length: {len(request.text)}")
+        
         # Slice text into chunks
         chunks = self.text_slicer.split_into_chunks(request.text)
-        logger.info(f"Sliced into {len(chunks)} chunks")
+        logger.info(f"!!! [DEBUG] Slicing complete. Produced {len(chunks)} chunks.")
+        
+        if not chunks:
+            logger.error("!!! [DEBUG] CRITICAL: TextSlicer produced ZERO chunks!")
 
         # Process chunks
         chunk_results = await self._process_chunks_parallel(chunks, request)
-
+        
         # Reassemble polished text
         polished_parts = []
         all_modifications = []
         total_tokens = 0
         failed_chunks = []
-
+        
         for result in chunk_results:
             polished_parts.append(result.polished_content)
             all_modifications.extend(result.modifications)
             total_tokens += result.tokens_used
             if result.failed:
                 failed_chunks.append(result.chunk_index)
-
+        
         polished_text = self.text_slicer.reassemble_chunks(chunks, [r.polished_content for r in chunk_results])
-
-        # Warn if any chunks failed
+        
         if failed_chunks:
             logger.warning(f"Chunks failed: {failed_chunks}")
-
+        
         logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens, failed: {len(failed_chunks)}")
-
+        
         return PolishResult(
             original_text=request.text,
             polished_text=polished_text,
@@ -146,45 +142,47 @@ class PolishingService:
         request: PolishRequest,
     ) -> List[ChunkResult]:
         """
-        Process multiple chunks in parallel with rate limiting.
-
-        Args:
-            chunks: List of Chunk objects from TextSlicer
-            request: PolishRequest with rules and options
-
-        Returns:
-            List of ChunkResult in same order as chunks
+        Process chunks sequentially for debugging and stability.
         """
-        semaphore = asyncio.Semaphore(self.max_workers)
+        logger.info(f"Starting chunk processing. Total chunks: {len(chunks)}")
+        results = []
+        
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Processing chunk {i}/{len(chunks)-1}...")
+            # Wait for rate limiter
+            await self.rate_limiter.consume()
 
-        async def process_chunk(chunk: Chunk, index: int) -> ChunkResult:
-            async with semaphore:
-                # Wait for rate limiter
-                await self.rate_limiter.consume()
+            # Process with timeout
+            try:
+                result = await asyncio.wait_for(
+                    self._process_single_chunk(chunk, i, request),
+                    timeout=self.chunk_timeout
+                )
+                results.append(result)
+                logger.info(f"Chunk {i} completed successfully.")
+            except asyncio.TimeoutError:
+                logger.error(f"Chunk {i} processing timed out after {self.chunk_timeout}s")
+                results.append(ChunkResult(
+                    chunk_index=i,
+                    polished_content=chunk.content,
+                    modifications=[],
+                    tokens_used=0,
+                    failed=True,
+                    error_message=f"Timeout after {self.chunk_timeout}s",
+                ))
+            except Exception as e:
+                logger.error(f"Unexpected error in chunk {i}: {e}", exc_info=True)
+                results.append(ChunkResult(
+                    chunk_index=i,
+                    polished_content=chunk.content,
+                    modifications=[],
+                    tokens_used=0,
+                    failed=True,
+                    error_message=str(e),
+                ))
 
-                # Process with timeout
-                try:
-                    return await asyncio.wait_for(
-                        self._process_single_chunk(chunk, index, request),
-                        timeout=self.chunk_timeout
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(f"Chunk {index} processing timed out after {self.chunk_timeout}s")
-                    return ChunkResult(
-                        chunk_index=index,
-                        polished_content=chunk.content,
-                        modifications=[],
-                        tokens_used=0,
-                        failed=True,
-                        error_message=f"Timeout after {self.chunk_timeout}s",
-                    )
-
-        # Process all chunks concurrently (bounded by semaphore)
-        tasks = [process_chunk(chunk, i) for i, chunk in enumerate(chunks)]
-        results = await asyncio.gather(*tasks)
-
-        # Sort by index to maintain order
-        return sorted(results, key=lambda x: x.chunk_index)
+        logger.info(f"All chunks processed. Total results: {len(results)}")
+        return results
 
     async def _process_single_chunk(
         self,
@@ -215,14 +213,22 @@ class PolishingService:
 
         # Send to LLM
         try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            # Log request (sanitize API key)
+            logger.info(f"Chunk {index}: Sending LLM request, model={self.llm_config.get('active_model', 'unknown')}")
+            logger.debug(f"Chunk {index}: System prompt length={len(system_prompt)}, User prompt length={len(user_prompt)}")
+
             llm_response = await self.llm_client.chatcompletion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=messages,
                 temperature=self.llm_config.get("temperature", 0.4),
                 max_tokens=self.llm_config.get("max_tokens", 4096),
             )
+
+            logger.info(f"Chunk {index}: LLM response received, tokens={llm_response.total_tokens}")
 
             # Extract polished text from response
             polished_content = self._extract_polished_text(llm_response.content)

@@ -25,6 +25,56 @@ def get_polishing_service() -> Any:
     """Get the global polishing service instance"""
     return _polishing_service
 
+
+async def initialize_polishing_service() -> None:
+    """
+    Initialize or refresh the global polishing service based on current config.
+    Closes the previous client if it exists.
+    """
+    global _polishing_service
+    
+    # 1. Close old client to prevent leaks
+    if _polishing_service and _polishing_service.llm_client:
+        try:
+            await _polishing_service.llm_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing old LLM client during refresh: {e}")
+
+    # 2. Read current config
+    manager = get_config_manager()
+    config = manager.read_config()
+    llm_config = config.get("llm", {})
+    providers = llm_config.get("providers", {})
+    active_provider = llm_config.get("active_provider", "openai")
+    active_provider_cfg = providers.get(active_provider, {})
+    api_key = active_provider_cfg.get("api_key", "")
+
+    if not api_key:
+        logger.warning(f"No API key configured for active provider '{active_provider}' - service will be disabled")
+        _polishing_service = None
+        return
+
+    # 3. Create new client and service
+    from app.core.llm_client import create_llm_client
+    from app.engine.polishing_service import create_polishing_service
+    
+    try:
+        client = await create_llm_client(
+            provider=active_provider,
+            api_key=api_key,
+            base_url=active_provider_cfg.get("base_url", ""),
+            model=active_provider_cfg.get("active_model", ""),
+            api_type=active_provider_cfg.get("api", "openai"),
+            timeout=120.0,
+        )
+        service = await create_polishing_service(client)
+        set_polishing_service(service)
+        logger.info(f"Polishing service initialized: provider={active_provider}, model={active_provider_cfg.get('active_model')}")
+    except Exception as e:
+        logger.error(f"Failed to initialize polishing service: {e}")
+        _polishing_service = None
+
+
 router = APIRouter()
 
 
@@ -75,28 +125,25 @@ async def reset_config() -> Dict[str, Any]:
 async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Test LLM API connection with given provider credentials.
-
-    Request body (from config.llm section):
-        active_provider: str - Provider ID
-        providers: Dict[str, ProviderConfig] - All provider configs
-
-    Returns:
-        {"ok": True, "model": "...", "response": "..."} on success
-        {"ok": False, "error": "..."} on failure
+    And refresh the global polishing service to ensure new config is active.
     """
     from app.core.llm_client import create_llm_client, LLMConnectionError
+    from app.api.rest import initialize_polishing_service
 
+    # Support both nested provider config and flat config for testing
     providers = provider_config.get("providers", {})
     active_provider = provider_config.get("active_provider", "openai")
+    
+    if active_provider in providers:
+        provider_data = providers[active_provider]
+    else:
+        # Fallback to flat config (direct fields in provider_config)
+        provider_data = provider_config
 
-    if active_provider not in providers:
-        return {"ok": False, "error": f"Provider '{active_provider}' not found in config"}
-
-    provider_data = providers[active_provider]
     api_key = provider_data.get("api_key", "").strip()
     base_url = provider_data.get("base_url", "").strip()
-    active_model = provider_data.get("active_model", "").strip()
-    api_type = provider_data.get("api", "openai").strip()  # Read api type from config
+    active_model = provider_data.get("model", provider_data.get("active_model", "")).strip()
+    api_type = provider_data.get("api", "openai").strip()
 
     if not api_key:
         return {"ok": False, "error": "API Key 不能为空"}
@@ -116,6 +163,11 @@ async def test_connection(provider_config: Dict[str, Any]) -> Dict[str, Any]:
             timeout=30.0,
         )
         result = await client.test_connection()
+        
+        # IMPORTANT: If connection is OK, refresh the global service instance
+        # to avoid needing a backend restart to apply the new API key.
+        await initialize_polishing_service()
+        
         return {"ok": True, "model": result["model"], "response": result.get("response", "OK")}
     except LLMConnectionError as e:
         return {"ok": False, "error": str(e)}
@@ -140,7 +192,9 @@ async def get_config_path() -> Dict[str, str]:
 async def get_rules() -> Dict[str, Any]:
     """Get rules configuration"""
     manager = get_config_manager()
-    return manager.read_rules()
+    rules = manager.read_rules()
+    # Frontend expects { main_categories: [...] }
+    return {"main_categories": rules}
 
 
 @router.post("/api/rules")
@@ -198,31 +252,61 @@ class PolishTextRequest(BaseModel):
 async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
     """
     Polish fiction text using LLM.
-
-    Request body:
-        text: str - The fiction text to polish
-        rules_state: Optional[Dict] - Rules to apply
-        enable_safety_exempt: Optional[bool] - Enable safety exemption (default: True)
-        enable_xml_isolation: Optional[bool] - Enable XML isolation (default: True)
-
-    Returns:
-        Dict with polished_text, modifications, chunks_processed, total_tokens
     """
+    logger.info(f"!!! [REST] Received polish request. Text length: {len(request.text)}")
+    
     from app.engine.polishing_service import PolishRequest
-
+    
     service = get_polishing_service()
+    logger.info(f"!!! [REST] Service instance: {service} (Type: {type(service)})")
+    
     if service is None:
+        logger.error("!!! [REST] Service is None!")
         raise HTTPException(status_code=503, detail="Polishing service not initialized")
-
+    
+    config = get_config_manager().read_config()
+    rules = get_config_manager().read_rules()
+    
     polish_request = PolishRequest(
         text=request.text,
         rules_state=request.rules_state,
         enable_safety_exempt=request.enable_safety_exempt,
         enable_xml_isolation=request.enable_xml_isolation,
     )
-
+    
     try:
+        logger.info("!!! [REST] Calling service.polish_text()...")
         result = await service.polish_text(polish_request)
+        logger.info("!!! [REST] service.polish_text() returned successfully.")
+
+        # Record history snapshot (both success and partial failure)
+        try:
+            db = get_history_db()
+            await db.insert_snapshot(
+                original_text=request.text,
+                revised_text=result.polished_text,
+                rules_snapshot=request.rules_state if request.rules_state else rules,
+                config_snapshot={"llm": config.get("llm", {})},
+                chunk_params={
+                    "chunks_processed": result.chunks_processed,
+                    "total_tokens": result.total_tokens,
+                },
+            )
+        except Exception as hist_err:
+            logger.warning(f"Failed to record history: {hist_err}")
+
+        # Check if all chunks failed (silent failure)
+        if result.total_tokens == 0 and result.chunks_processed > 0:
+            logger.warning(f"Polish request produced no tokens - LLM may have failed. chunks={result.chunks_processed}")
+            return {
+                "original_text": result.original_text,
+                "polished_text": result.polished_text,
+                "modifications": result.modifications,
+                "chunks_processed": result.chunks_processed,
+                "total_tokens": result.total_tokens,
+                "warning": "No tokens consumed - LLM may not have been called. Check API key and model configuration.",
+            }
+
         return {
             "original_text": result.original_text,
             "polished_text": result.polished_text,
@@ -231,5 +315,17 @@ async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
             "total_tokens": result.total_tokens,
         }
     except Exception as e:
-        logger.error(f"Polish request failed: {e}")
+        logger.error(f"!!! [REST] Polish request failed: {e}", exc_info=True)
+        # Record failed attempt in history
+        try:
+            db = get_history_db()
+            await db.insert_snapshot(
+                original_text=request.text,
+                revised_text=request.text,  # No revision on failure
+                rules_snapshot=request.rules_state if request.rules_state else rules,
+                config_snapshot={"llm": config.get("llm", {})},
+                chunk_params={"error": str(e)},
+            )
+        except Exception as hist_err:
+            logger.warning(f"Failed to record history for failed request: {hist_err}")
         raise HTTPException(status_code=500, detail=str(e))

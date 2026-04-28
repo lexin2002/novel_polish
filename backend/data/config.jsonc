@@ -1,49 +1,49 @@
 {
-  priority_order: [
+  "priority_order": [
     "P0",
     "P1",
     "P2",
-    "P3",
+    "P3"
   ],
-  llm: {
-    provider: "openai",
-    model: "api-test-model",
-    api_key: "",
-    base_url: "https://api.openai.com/v1",
-    temperature: 0.4,
-    max_tokens: 4096,
-    safety_exempt_enabled: true,
-    xml_tag_isolation_enabled: true,
-    desensitize_mode: false,
+  "llm": {
+    "provider": "openai",
+    "model": "gemma-4-31b-it",
+    "api_key": "AIzaSyD2UjktyZ0dfmmG3oLuzQ96-5ucH8z1alY",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "temperature": 0.4,
+    "max_tokens": 4096,
+    "safety_exempt_enabled": true,
+    "xml_tag_isolation_enabled": true,
+    "desensitize_mode": false
   },
-  engine: {
-    chunk_size: 1000,
-    chunk_size_min: 500,
-    chunk_size_max: 3000,
-    max_workers: 3,
-    max_revisions: 2,
-    context_overlap_chars: 200,
-    context_snap_to_punctuation: true,
-    request_jitter_range: [
+  "engine": {
+    "chunk_size": 1000,
+    "chunk_size_min": 500,
+    "chunk_size_max": 3000,
+    "max_workers": 3,
+    "max_revisions": 2,
+    "context_overlap_chars": 200,
+    "context_snap_to_punctuation": true,
+    "request_jitter_range": [
       0.2,
-      1.5,
+      1.5
     ],
-    max_requests_per_second: 2,
-    chunk_timeout_seconds: 60,
-    enable_invalid_modification_break: true,
+    "max_requests_per_second": 2,
+    "chunk_timeout_seconds": 60,
+    "enable_invalid_modification_break": true
   },
-  network: {
-    request_timeout: 5,
-    retry_count: 3,
-    circuit_breaker_threshold: 3,
+  "network": {
+    "request_timeout": 5,
+    "retry_count": 3,
+    "circuit_breaker_threshold": 3
   },
-  ui: {
-    log_to_file_enabled: true,
-    log_file_dir: "./logs",
-    experimental_realtime_log: false,
-    sync_scroll_default: false,
+  "ui": {
+    "log_to_file_enabled": true,
+    "log_file_dir": "./logs",
+    "experimental_realtime_log": false,
+    "sync_scroll_default": false
   },
-  history: {
-    max_snapshots: 20,
-  },
+  "history": {
+    "max_snapshots": 20
+  }
 }

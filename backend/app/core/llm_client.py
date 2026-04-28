@@ -33,6 +33,22 @@ class LLMClient:
 
     SUPPORTED_API_TYPES = {"openai", "anthropic"}
 
+    # Provider-specific model patterns for validation
+    PROVIDER_MODEL_PATTERNS = {
+        "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+        "openai": ["gpt-", "o1-", "o3-"],
+        "anthropic": ["claude-"],
+        "google": ["gemini-"],
+    }
+
+    # Provider-specific base URL patterns
+    PROVIDER_BASE_URL_PATTERNS = {
+        "deepseek": ["api.deepseek.com"],
+        "openai": ["api.openai.com"],
+        "anthropic": ["api.anthropic.com"],
+        "google": ["generativelanguage.googleapis.com"],
+    }
+
     def __init__(
         self,
         provider: str,
@@ -44,13 +60,54 @@ class LLMClient:
     ):
         self.provider = provider
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url if base_url.endswith("/") else base_url + "/"
         self.model = model
         # Auto-detect API type from base_url if not provided
         self.api_type = api_type or self._detect_api_type(self.base_url)
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
         self._client_lock = asyncio.Lock()
+
+        # Validate configuration
+        self._validate_config()
+
+    def _validate_config(self) -> None:
+        """Validate provider configuration and log warnings for common issues"""
+        # Check for common base_url misconfigurations
+        if "deepseek.com" in self.base_url:
+            if "/anthropic" in self.base_url or "/v1/messages" in self.base_url:
+                logger.error(
+                    f"[LLMClient] DEEPSEEK MISCONFIGURATION DETECTED!\n"
+                    f"  base_url={self.base_url}\n"
+                    f"  The '/anthropic' path is for Anthropic API, not DeepSeek.\n"
+                    f"  Correct base_url for DeepSeek: 'https://api.deepseek.com/' or 'https://api.deepseek.com/v1/'\n"
+                    f"  Current config will cause 404 errors!"
+                )
+            elif not any(p in self.base_url for p in ["/v1/", "/v1/chat"]):
+                logger.warning(
+                    f"[LLMClient] DeepSeek base_url may be missing API path.\n"
+                    f"  Current: {self.base_url}\n"
+                    f"  Recommended: 'https://api.deepseek.com/' or 'https://api.deepseek.com/v1/'"
+                )
+
+        # Check model name validity
+        if "deepseek.com" in self.base_url:
+            valid_models = self.PROVIDER_MODEL_PATTERNS.get("deepseek", [])
+            if not any(m in self.model for m in valid_models):
+                logger.error(
+                    f"[LLMClient] INVALID DEEPSEEK MODEL NAME!\n"
+                    f"  model={self.model}\n"
+                    f"  Valid DeepSeek models: {valid_models}\n"
+                    f"  Current model name will likely cause 404 errors!"
+                )
+
+        # Check Google AI configuration
+        if "generativelanguage.googleapis.com" in self.base_url:
+            if not self.model.startswith("gemini-"):
+                logger.warning(
+                    f"[LLMClient] Google AI OpenAI-compatible endpoint typically uses "
+                    f"models starting with 'gemini-'. Current: {self.model}"
+                )
 
     async def get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client with async lock for coroutine safety."""
@@ -120,23 +177,47 @@ class LLMClient:
             f"messages={len(messages)}, base_url={self.base_url}"
         )
 
+        # Provider-specific diagnostics
+        if "generativelanguage.googleapis.com" in self.base_url:
+            if not self.base_url.endswith("/"):
+                logger.warning(
+                    f"[LLMClient] Google AI base_url should end with '/'. "
+                    f"Current: {self.base_url}. Consider using: "
+                    f"{self.base_url.rstrip('/') + '/v1beta/openai/'}"
+                )
+            if not self.model.startswith("gemini-"):
+                logger.warning(
+                    f"[LLMClient] Google AI OpenAI-compatible endpoint typically uses "
+                    f"models starting with 'gemini-'. Current model: {self.model}"
+                )
+
         try:
             client = await self.get_client()
             response = await client.post("/chat/completions", json=payload)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
+            error_detail = ""
+            try:
+                error_json = e.response.json()
+                error_detail = error_json.get("error", {}).get("message", e.response.text[:200])
+            except Exception:
+                error_detail = e.response.text[:200]
+
             if e.response.status_code == 401:
-                raise LLMConnectionError(f"认证失败: API Key 无效或已过期 (401)")
+                raise LLMConnectionError(f"认证失败: API Key 无效或已过期 (401). Detail: {error_detail}")
             elif e.response.status_code == 403:
-                raise LLMConnectionError(f"访问被拒绝: 权限不足 (403)")
+                raise LLMConnectionError(f"访问被拒绝: 权限不足 (403). Detail: {error_detail}")
             elif e.response.status_code == 404:
-                raise LLMConnectionError(f"模型不存在或端点错误: {self.model} (404)")
+                raise LLMConnectionError(
+                    f"模型不存在或端点错误: {self.model} (404). "
+                    f"Base URL: {self.base_url}. Detail: {error_detail}"
+                )
             elif e.response.status_code == 429:
-                raise LLMConnectionError(f"请求频率超限，请稍后重试 (429)")
+                raise LLMConnectionError(f"请求频率超限，请稍后重试 (429). Detail: {error_detail}")
             else:
-                raise LLMConnectionError(f"API 请求失败 ({e.response.status_code}): {e.response.text[:200]}")
+                raise LLMConnectionError(f"API 请求失败 ({e.response.status_code}): {error_detail}")
         except httpx.RequestError as e:
-            raise LLMConnectionError(f"网络连接失败: {str(e)}")
+            raise LLMConnectionError(f"网络连接失败: {str(e)}. Base URL: {self.base_url}")
 
         data = response.json()
         usage = data.get("usage", {})

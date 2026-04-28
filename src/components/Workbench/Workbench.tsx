@@ -159,6 +159,8 @@ export const Workbench: React.FC = () => {
   }
 
   const handleStart = async () => {
+    console.log('!!! [FRONTEND] handleStart triggered');
+    alert('handleStart triggered!');
     setIsRunning(true)
     setRevisedText('')
     // Abort any previous controller before creating a new one
@@ -168,7 +170,7 @@ export const Workbench: React.FC = () => {
     abortControllerRef.current = new AbortController()
 
     try {
-      const response = await fetch('/api/polish', {
+      const response = await fetch('http://localhost:57621/api/polish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

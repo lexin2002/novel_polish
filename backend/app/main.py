@@ -91,13 +91,22 @@ async def lifespan(app: FastAPI):
     logger.info("Novel Polish Backend shutting down")
 
 
-# Create FastAPI app
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Novel Polish Backend",
     description="Backend service for Novel Polish desktop application",
     version="1.0.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"!!! [MIDDLEWARE] Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"!!! [MIDDLEWARE] Response status: {response.status_code} for {request.url.path}")
+    return response
 
 # Configure CORS
 app.add_middleware(

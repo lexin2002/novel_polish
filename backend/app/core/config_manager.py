@@ -262,16 +262,18 @@ class ConfigurationManager:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     data = json5.load(f)
 
-                # Auto-fix corrupted provider data and persist
+                # Auto-fix corrupted provider data (mark for deferred write)
                 llm_config = data.get("llm", {})
                 data["llm"], was_modified = self._migrate_llm_config(llm_config)
-                if was_modified:
-                    self._atomic_write_config(data)
-                    logger.info("Auto-fixed corrupted provider data in config")
 
-                self._is_read_only = False
-                logger.debug("Config read successfully")
-                return data
+            # Write-back must happen OUTSIDE the read lock to avoid re-entrant deadlock
+            if was_modified:
+                self._atomic_write_config(data)
+                logger.info("Auto-fixed corrupted provider data in config")
+
+            self._is_read_only = False
+            logger.debug("Config read successfully")
+            return data
         except filelock.Timeout:
             logger.warning("Config read timed out, retrying without lock...")
             # Try reading directly without lock
@@ -387,7 +389,10 @@ class ConfigurationManager:
             return base
 
         config = deep_merge(config, patch)
+        
+        # Crucial: Ensure the updated config is written to disk
         self.write_config(config)
+        logger.info(f"Config patched and written to disk: {self.config_path}")
         return config
 
     def read_rules(self) -> Dict[str, Any]:

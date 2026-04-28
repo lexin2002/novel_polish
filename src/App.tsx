@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar'
 import { RuleEditor } from './components/RuleEditor'
 import { LogPanel } from './components/LogPanel'
 import { Workbench } from './components/Workbench'
+import { Archive } from './components/Archive/Archive'
 import { WebSocketProvider } from './contexts/WebSocketContext'
 
 type TabType = 'polish' | 'rules' | 'history' | 'config'
@@ -39,15 +40,16 @@ function App() {
       case 'rules':
         return <RuleEditor />
       case 'history':
+        return <Archive />
       case 'config':
         return (
           <div className="bg-white border border-border rounded-lg p-8 text-center h-full flex flex-col items-center justify-center">
             <BookOpen className="w-16 h-16 text-primary mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-foreground mb-2">
-              {activeTab === 'history' ? '历史档案馆' : '系统设置'}
+              系统设置
             </h2>
             <p className="text-muted-foreground">
-              {activeTab === 'history' ? '查看历史润色记录' : '在左侧配置驾驶舱中调整系统参数'}
+              在左侧配置驾驶舱中调整系统参数
             </p>
           </div>
         )

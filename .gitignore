@@ -54,6 +54,7 @@ data/*.jsonc
 data/*.json
 data/*.db
 data/*.lock
+backend/app/data/
 
 # Except defaults
 backend/data/.gitkeep

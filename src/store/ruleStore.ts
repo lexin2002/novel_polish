@@ -98,7 +98,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
   fetchRules: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await axios.get<RulesState>('/api/rules')
+      const response = await axios.get<RulesState>('http://localhost:57621/api/rules')
       const data = response.data
       // Deep clone & ensure every node has a unique id for stable drag & drop keys
       // ensureIds already deep-clones via spread operators, no extra clone needed
@@ -120,7 +120,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
 
     // Get valid priorities from config
     try {
-      const configResponse = await axios.get('/api/config')
+      const configResponse = await axios.get('http://localhost:57621/api/config')
       const validPriorities = configResponse.data.priority_order || ['P0', 'P1', 'P2', 'P3']
 
       // Validate all priorities before submitting
@@ -129,7 +129,7 @@ export const useRuleStore = create<RuleStore>((set, get) => ({
       }
 
       set({ isSyncing: true, error: null })
-      await axios.post('/api/rules', draft)
+      await axios.post('http://localhost:57621/api/rules', draft)
       set((state) => ({
         original: state.draft ? structuredClone(state.draft) : null,
         isSyncing: false,
