@@ -4,6 +4,10 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+import json
+import asyncio
+from dataclasses import asdict
 from pydantic import BaseModel, Field
 
 from app.core.config_manager import get_config_manager, DEFAULT_CONFIG
@@ -282,23 +286,20 @@ class PolishTextRequest(BaseModel):
 
 
 @router.post("/api/polish")
-async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
+async def polish_text(request: PolishTextRequest) -> StreamingResponse:
     """
-    Polish fiction text using LLM.
+    Polish fiction text using LLM with streaming responses.
     """
-    logger.info(f"!!! [REST] Received polish request. Text length: {len(request.text)}")
+    logger.info(f"!!! [REST] Received streaming polish request. Text length: {len(request.text)}")
     
     from app.engine.polishing_service import PolishRequest
     
     service = get_polishing_service()
-    logger.info(f"!!! [REST] Service instance: {service} (Type: {type(service)})")
-    
     if service is None:
         logger.info("!!! [REST] Service is None, attempting emergency initialization...")
         await initialize_polishing_service()
         service = get_polishing_service()
         if service is None:
-            logger.error("!!! [REST] Emergency initialization failed!")
             raise HTTPException(status_code=503, detail="Polishing service not initialized")
     
     config = get_config_manager().read_config()
@@ -311,58 +312,21 @@ async def polish_text(request: PolishTextRequest) -> Dict[str, Any]:
         enable_xml_isolation=request.enable_xml_isolation,
     )
     
-    try:
-        logger.info("!!! [REST] Calling service.polish_text()...")
-        result = await service.polish_text(polish_request)
-        logger.info("!!! [REST] service.polish_text() returned successfully.")
-
-        # Record history snapshot (both success and partial failure)
+    async def event_generator():
         try:
-            db = get_history_db()
-            await db.insert_snapshot(
-                original_text=request.text,
-                revised_text=result.polished_text,
-                rules_snapshot=request.rules_state if request.rules_state else rules,
-                config_snapshot={"llm": config.get("llm", {})},
-                chunk_params={
-                    "chunks_processed": result.chunks_processed,
-                    "total_tokens": result.total_tokens,
-                },
-            )
-        except Exception as hist_err:
-            logger.warning(f"Failed to record history: {hist_err}")
+            # 1. Notify starting
+            yield f"data: {json.dumps({'type': 'start', 'message': 'Starting polishing process...'})}\\n\\n"
+            
+            # 2. Call streaming polish service
+            # We'll implement polish_text_stream in PolishingService next
+            async for chunk_res in service.polish_text_stream(polish_request):
+                yield f"data: {json.dumps({'type': 'chunk', 'data': asdict(chunk_res)})}\n\n"
+            
+            # 3. Final summary
+            yield f"data: {json.dumps({'type': 'end', 'message': 'Polishing complete'})}\\n\\n"
+            
+        except Exception as e:
+            logger.error(f"!!! [REST] Error during streaming: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\\n\\n"
 
-        # Check if all chunks failed (silent failure)
-        if result.total_tokens == 0 and result.chunks_processed > 0:
-            logger.warning(f"Polish request produced no tokens - LLM may have failed. chunks={result.chunks_processed}")
-            return {
-                "original_text": result.original_text,
-                "polished_text": result.polished_text,
-                "modifications": result.modifications,
-                "chunks_processed": result.chunks_processed,
-                "total_tokens": result.total_tokens,
-                "warning": "No tokens consumed - LLM may not have been called. Check API key and model configuration.",
-            }
-
-        return {
-            "original_text": result.original_text,
-            "polished_text": result.polished_text,
-            "modifications": result.modifications,
-            "chunks_processed": result.chunks_processed,
-            "total_tokens": result.total_tokens,
-        }
-    except Exception as e:
-        logger.error(f"!!! [REST] Polish request failed: {e}", exc_info=True)
-        # Record failed attempt in history
-        try:
-            db = get_history_db()
-            await db.insert_snapshot(
-                original_text=request.text,
-                revised_text=request.text,  # No revision on failure
-                rules_snapshot=request.rules_state if request.rules_state else rules,
-                config_snapshot={"llm": config.get("llm", {})},
-                chunk_params={"error": str(e)},
-            )
-        except Exception as hist_err:
-            logger.warning(f"Failed to record history for failed request: {hist_err}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

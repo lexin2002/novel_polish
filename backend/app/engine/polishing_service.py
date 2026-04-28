@@ -100,51 +100,95 @@ class PolishingService:
             recovery_timeout=30.0
         )
 
-    async def polish_text(self, request: PolishRequest) -> PolishResult:
+    async def polish_text_stream(self, request: PolishRequest):
         """
-        Polish fiction text using LLM with masking and isolation.
+        Polish fiction text and yield results as they are processed.
+        Uses concurrent execution with max_workers and yields in original order.
         """
-        logger.info(f"!!! [DEBUG] polish_text entered. Text length: {len(request.text)}")
+        logger.info(f"!!! [STREAM] polish_text_stream started. Text length: {len(request.text)}")
         
         # 1. Mask sensitive content
         masked_text, mask_map = self.masker.mask(request.text)
-        if mask_map:
-            logger.info(f"Masked {len(mask_map)} sensitive terms.")
-
+        
         # 2. Slice masked text into chunks
         chunks = self.text_slicer.split_into_chunks(masked_text)
-        logger.info(f"!!! [DEBUG] Slicing complete. Produced {len(chunks)} chunks.")
         
         if not chunks:
-            logger.error("!!! [DEBUG] CRITICAL: TextSlicer produced ZERO chunks!")
-            return PolishResult(
-                original_text=request.text,
-                polished_text=request.text,
+            logger.error("!!! [STREAM] CRITICAL: TextSlicer produced ZERO chunks!")
+            yield ChunkResult(
+                chunk_index=-1,
+                polished_content=request.text,
                 modifications=[],
-                chunks_processed=0,
-                total_tokens=0,
+                tokens_used=0,
+                failed=True,
+                error_message="TextSlicer produced no chunks"
             )
+            return
 
-        # 3. Process chunks
-        chunk_results = await self._process_chunks_parallel(chunks, request)
+        # 3. Concurrent Execution with Ordered Yielding
+        num_chunks = len(chunks)
+        results_buffer = {}
+        next_chunk_to_yield = 0
+        semaphore = asyncio.Semaphore(self.max_workers)
         
-        # 4. Reassemble and unmask
-        polished_text = self.text_slicer.reassemble_chunks(chunks, [r.polished_content for r in chunk_results])
-        final_text = self.masker.unmask(polished_text, mask_map)
+        async def worker(index: int, chunk: Chunk):
+            nonlocal next_chunk_to_yield
+            async with semaphore:
+                logger.info(f"!!! [STREAM] Worker processing chunk {index}/{num_chunks-1}...")
+                await self.rate_limiter.consume()
+                try:
+                    result = await asyncio.wait_for(
+                        self._process_single_chunk(chunk, index, request),
+                        timeout=self.chunk_timeout
+                    )
+                    # Unmask the content for the frontend
+                    result.polished_content = self.masker.unmask(result.polished_content, mask_map)
+                    results_buffer[index] = result
+                except Exception as e:
+                    logger.error(f"!!! [STREAM] Error in chunk {index}: {e}")
+                    results_buffer[index] = ChunkResult(
+                        chunk_index=index,
+                        polished_content=chunk.content,
+                        modifications=[],
+                        tokens_used=0,
+                        failed=True,
+                        error_message=str(e)
+                    )
+
+        # Launch all workers as tasks
+        tasks = [asyncio.create_task(worker(i, chunk)) for i, chunk in enumerate(chunks)]
         
-        total_tokens = sum(r.tokens_used for r in chunk_results)
-        all_modifications = []
-        for r in chunk_results:
-            all_modifications.extend(r.modifications)
+        # Monitor and yield in order
+        while next_chunk_to_yield < num_chunks:
+            if next_chunk_to_yield in results_buffer:
+                yield results_buffer.pop(next_chunk_to_yield)
+                next_chunk_to_yield += 1
+            else:
+                # Small sleep to prevent busy-waiting while workers are running
+                await asyncio.sleep(0.05)
         
-        logger.info(f"Polishing complete: {len(chunks)} chunks, ~{total_tokens} tokens")
+        await asyncio.gather(*tasks)
+
+    async def polish_text(self, request: PolishRequest) -> PolishResult:
+        """
+        Legacy support for non-streaming polish.
+        """
+        results = []
+        async for res in self.polish_text_stream(request):
+            results.append(res)
+        
+        if not results:
+            return PolishResult(request.text, request.text, [], 0, 0)
+            
+        chunks = self.text_slicer.split_into_chunks(self.masker.mask(request.text)[0])
+        polished_text = self.text_slicer.reassemble_chunks(chunks, [r.polished_content for r in results])
         
         return PolishResult(
             original_text=request.text,
-            polished_text=final_text,
-            modifications=all_modifications,
-            chunks_processed=len(chunks),
-            total_tokens=total_tokens,
+            polished_text=polished_text,
+            modifications=[m for r in results for m in r.modifications],
+            chunks_processed=len(results),
+            total_tokens=sum(r.tokens_used for r in results),
         )
 
     async def _process_chunks_parallel(
@@ -271,23 +315,30 @@ class PolishingService:
                     sub_name = sub.get("name", "Unknown")
                     for rule in sub.get("rules", []):
                         if rule.get("enabled", True):
-                            rules_text += f"- [{cat_name} > {sub_name}] {rule.get('name')}: {rule.get('instruction')}\n"
+                            rules_text += f"- [{cat_name} > {sub_name}] {rule.get('name')}: {rule.get('instruction')}\\n"
 
         system_prompt = (
-            "You are a professional fiction editor. Your task is to DIAGNOSE the text for errors based on the provided rules.\n"
-            "You must output a VALID JSON object with a key 'errors' which is a list of objects:\n"
-            "- rule_name: The name of the rule violated\n"
-            "- location: The exact snippet of text that is problematic\n"
-            "- suggestion: How to fix it precisely\n"
-            "Example: {\"errors\": [{\"rule_name\": \"Wordiness\", \"location\": \"he walked very slowly\", \"suggestion\": \"he plodded\"}]}"
+            "You are a professional fiction editor. Your task is to DIAGNOSE the text for errors based on the provided rules.\\n"
+            "You must output a VALID JSON object with a key 'errors' which is a list of objects:\\n"
+            "- rule_name: The name of the rule violated\\n"
+            "- location: The exact snippet of text that is problematic\\n"
+            "- suggestion: How to fix it precisely\\n"
+            "Example: {\\\"errors\\\": [{\\\"rule_name\\\": \\\"Wordiness\\\", \\\"location\\\": \\\"he walked very slowly\\\", \\\"suggestion\\\": \\\"he plodded\\\"}]}"
         )
-        user_prompt = f"Rules:\n{rules_text}\n\nText to diagnose:\n{text}"
+        user_prompt = f"Rules:\\n{rules_text}\\n\\nText to diagnose:\\n{text}"
         
         total_tokens = 0
-        for attempt in range(3):
+        # Use config for retry and params
+        retry_count = self.config.get("network", {}).get("retry_count", 3)
+        temperature = self.llm_config.get("temperature", 0.2)
+        max_tokens = self.llm_config.get("max_tokens", 4096)
+
+        for attempt in range(3): # This is the JSON-parse retry, separate from network retry
             res = await self.llm_client.chatcompletion(
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                temperature=0.2,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                retry_count=retry_count,
             )
             total_tokens += res.total_tokens
             
@@ -339,9 +390,16 @@ class PolishingService:
         
         user_prompt = f"Diagnosis Report:\\n{error_list}\\n\\nOriginal Text:\\n{text}"
         
+        # Use config for retry and params
+        retry_count = self.config.get("network", {}).get("retry_count", 3)
+        temperature = self.llm_config.get("temperature", 0.3)
+        max_tokens = self.llm_config.get("max_tokens", 4096)
+
         res = await self.llm_client.chatcompletion(
             messages=[{"role": "system", "content": "Professional Editor - Repair Mode"}, {"role": "user", "content": user_prompt}],
-            temperature=0.3,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            retry_count=retry_count,
         )
         
         return res.content.strip(), res.total_tokens

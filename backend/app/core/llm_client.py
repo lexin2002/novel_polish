@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -116,22 +117,34 @@ class LLMClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        retry_count: int = 3,
     ) -> LLMResponse:
         """
-        Send chat completion request wrapped in a circuit breaker.
+        Send chat completion request wrapped in a circuit breaker and retry logic.
         """
-        if self.api_type == "anthropic":
-            return await self.circuit_breaker.call(
-                self._anthropic_chat, messages, temperature, max_tokens
-            )
-        elif self.api_type == "google":
-            return await self.circuit_breaker.call(
-                self._google_chat, messages, temperature, max_tokens
-            )
-        else:
-            return await self.circuit_breaker.call(
-                self._openai_compatible_chat, messages, temperature, max_tokens
-            )
+        async def _call_with_retry():
+            last_exception = None
+            for attempt in range(retry_count + 1):
+                try:
+                    if self.api_type == "anthropic":
+                        return await self._anthropic_chat(messages, temperature, max_tokens)
+                    elif self.api_type == "google":
+                        return await self._google_chat(messages, temperature, max_tokens)
+                    else:
+                        return await self._openai_compatible_chat(messages, temperature, max_tokens)
+                except LLMConnectionError as e:
+                    last_exception = e
+                    # Only retry on rate limits (429) or server errors (5xx)
+                    if "429" in str(e) or "500" in str(e) or "502" in str(e) or "503" in str(e) or "504" in str(e):
+                        if attempt < retry_count:
+                            wait_time = (2 ** attempt) + random.uniform(0, 1)
+                            logger.warning(f"[LLMClient] {self.provider} transient error: {e}. Retrying in {wait_time:.2f}s (attempt {attempt+1}/{retry_count})")
+                            await asyncio.sleep(wait_time)
+                            continue
+                    raise e
+            raise last_exception or LLMConnectionError("Max retries reached")
+
+        return await self.circuit_breaker.call(_call_with_retry)
 
     async def _openai_compatible_chat(
         self,

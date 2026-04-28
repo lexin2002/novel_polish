@@ -116,10 +116,43 @@ export const Workbench: React.FC = () => {
         throw new Error(error.detail || `HTTP ${response.status}`)
       }
 
-      const result = await response.json()
-      const polished = result.polished_text || ''
-      setRevisedText(polished)
-      setDiffResult(computeTextDiff(originalText, polished))
+      // Stream processing
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let accumulatedText = ''
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader!.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        
+        // SSE parse: look for "data: { ... }\n\n"
+        const lines = buffer.split('\\n\\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.replace('data: ', '').trim()
+              const event = JSON.parse(jsonStr)
+              
+              if (event.type === 'chunk') {
+                const chunkContent = event.data.polished_content || ''
+                accumulatedText += chunkContent
+                setRevisedText(accumulatedText)
+              } else if (event.type === 'error') {
+                throw new Error(event.error)
+              }
+            } catch (e) {
+              console.error('SSE parse error:', e)
+            }
+          }
+        }
+      }
+
+      setDiffResult(computeTextDiff(originalText, accumulatedText))
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         setRevisedText('已取消')
