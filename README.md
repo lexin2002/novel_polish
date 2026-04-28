@@ -21,7 +21,6 @@ A desktop-grade AI-powered novel writing assistant built with Electron + React +
 - **Zustand** - 状态管理
 - **Radix UI** - UI 组件库
 - **@dnd-kit** - 拖拽排序
-- **Playwright** - E2E 测试
 
 ### 后端
 - **FastAPI** - Web 框架
@@ -122,9 +121,6 @@ cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 57621 --reloa
 ```bash
 # 后端单元测试（46 个测试覆盖 Config/规则/Prompt/文本切片）
 cd backend && pytest tests/ -v --cov=app
-
-# 前端 E2E 测试（需要先创建 tests/e2e/ 目录）
-npm test  # 或 npx playwright test tests/e2e/
 ```
 
 ## API 端点
@@ -326,9 +322,6 @@ interface MainCategory {
 ```bash
 # 后端单元测试（46 个测试）
 cd backend && pytest tests/ -v --cov=app
-
-# 前端 E2E 测试（需要先创建 tests/e2e/ 目录）
-npm test  # 或 npx playwright test tests/e2e/
 ```
 
 ## 构建发布
