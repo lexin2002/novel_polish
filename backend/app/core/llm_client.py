@@ -68,26 +68,17 @@ class LLMClient:
         self._validate_config()
 
     def _validate_config(self) -> None:
-        if "deepseek.com" in self.base_url:
-            if "/anthropic" in self.base_url or "/v1/messages" in self.base_url:
-                logger.error(f"[LLMClient] DEEPSEEK MISCONFIGURATION DETECTED! base_url={self.base_url}")
-            elif not any(p in self.base_url for p in ["/v1/", "/v1/chat"]):
-                logger.warning(f"[LLMClient] DeepSeek base_url may be missing API path. Current: {self.base_url}")
-
-        if "deepseek.com" in self.base_url:
-            valid_models = self.PROVIDER_MODEL_PATTERNS.get("deepseek", [])
-            if not any(m in self.model for m in valid_models):
-                logger.error(f"[LLMClient] INVALID DEEPSEEK MODEL NAME! model={self.model}")
-
         if "generativelanguage.googleapis.com" in self.base_url:
             if not self.model.startswith("gemini-"):
                 logger.warning(f"[LLMClient] Google AI model should start with 'gemini-'. Current: {self.model}")
+        
+        # Removed the restrictive DeepSeek Anthropic check to allow flexible provider endpoints
 
     def _normalize_url(self, endpoint: str) -> str:
         """Ensure base_url and endpoint are combined correctly with protocol-specific paths"""
         url = self.base_url.rstrip('/')
         
-        # Protocol-specific path overrides
+        # Avoid adding /v1 if it's already part of the base_url
         if self.api_type == "openai" and "/v1" not in url:
             url += "/v1"
         elif self.api_type == "anthropic" and "/v1" not in url:
@@ -268,11 +259,18 @@ class LLMClient:
         payload = {"model": self.model, "messages": anthropic_messages, "temperature": temperature, "max_tokens": max_tokens}
         if system_msg: payload["system"] = system_msg
 
-        headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+        # Anthropic requires specific headers
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
 
         try:
             client = await self.get_client()
-            response = await client.post("/messages", json=payload, headers=headers)
+            # Use normalized URL for the endpoint
+            url = self._normalize_url("messages")
+            response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise LLMConnectionError(f"Anthropic API Error ({e.response.status_code}): {e.response.text[:200]}")
